@@ -1,0 +1,2 @@
+bucket = "sre-challenge-CHANGE-ME-tfstate"
+prefix = "terraform/state"

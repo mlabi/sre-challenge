@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (gitignored) and fill in:
+
+project_id = "sre-challenge-CHANGE-ME"   # from bootstrap-gcp/00-create-project.sh
+region     = "europe-central2"
+zone       = "europe-central2-a"
+
+# Lock control-plane API access to your own IP. Find it with:
+#   curl -s ifconfig.me
+# Default 0.0.0.0/0 in variables.tf is open to the world (demo convenience),
+# pin it down here for anything bank-grade.
+# master_authorized_cidr = "203.0.113.42/32"
+
+# Override defaults if you want a beefier cluster:
+# node_machine_type = "e2-standard-4"
+# node_count_min    = 1
+# node_count_max    = 3

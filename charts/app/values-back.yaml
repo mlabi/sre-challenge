@@ -1,0 +1,81 @@
+fullnameOverride: back
+
+image:
+  tag: "0.1.0"
+
+imagePullSecrets:
+  - name: registry-pull
+
+env:
+  SPRING_PROFILES_ACTIVE: prod
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: demo-kafka-bootstrap.kafka.svc.cluster.local:9093
+  SPRING_KAFKA_SECURITY_PROTOCOL: SSL
+  SPRING_KAFKA_SSL_TRUST_STORE_LOCATION: file:/etc/kafka/ca.p12
+  SPRING_KAFKA_SSL_TRUST_STORE_TYPE: PKCS12
+  SPRING_KAFKA_SSL_KEY_STORE_LOCATION: file:/etc/kafka/user.p12
+  SPRING_KAFKA_SSL_KEY_STORE_TYPE: PKCS12
+  SPRING_KAFKA_CONSUMER_GROUP_ID: back-default
+  SPRING_DATASOURCE_URL: jdbc:postgresql://demo-pg-rw.postgres.svc.cluster.local:5432/app?ssl=true&sslmode=require
+
+envFromSecrets:
+  - kafka-back-passwords
+  - postgres-creds       # populated by ExternalSecret below
+
+volumes:
+  - name: kafka-certs
+    secret:
+      secretName: kafka-back-certs
+      items:
+        - key: user.p12
+          path: user.p12
+        - key: ca.p12
+          path: ca.p12
+volumeMounts:
+  - name: kafka-certs
+    mountPath: /etc/kafka
+    readOnly: true
+
+ingress:
+  enabled: false   # back is cluster-internal
+
+networkPolicies:
+  allowIngressFromNginx: false
+  egressAllows:
+    - name: kafka
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kafka
+      ports:
+        - protocol: TCP
+          port: 9093
+    - name: postgres
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+
+externalSecrets:
+  - name: postgres-creds
+    secretStoreRef:
+      name: vault-backend
+      kind: ClusterSecretStore
+    target:
+      name: postgres-creds
+      template:
+        engineVersion: v2
+        data:
+          SPRING_DATASOURCE_USERNAME: "{{ .username }}"
+          SPRING_DATASOURCE_PASSWORD: "{{ .password }}"
+    data:
+      - secretKey: username
+        remoteRef:
+          key: postgres/app
+          property: username
+      - secretKey: password
+        remoteRef:
+          key: postgres/app
+          property: password

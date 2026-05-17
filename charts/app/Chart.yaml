@@ -1,0 +1,8 @@
+apiVersion: v2
+name: app
+description: |
+  Generic Helm chart for the three Spring Boot apps (Front, Back, Reader).
+  Per-app behavior comes from values-{front,back,reader}.yaml.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,25 @@
+{{ include "app.fullname" . }} deployed.
+
+Image:    {{ .Values.image.repository }}:{{ .Values.image.tag }}
+Replicas: {{ .Values.replicaCount }}
+
+{{- if .Values.ingress.enabled }}
+
+External URL:
+  https://{{ include "app.ingressHost" . }}/
+
+Health endpoint (management port {{ .Values.ports.management }}):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "app.fullname" . }} {{ .Values.ports.management }}:{{ .Values.ports.management }}
+  curl http://localhost:{{ .Values.ports.management }}/health
+{{- else }}
+
+Service is cluster-internal only.
+  ClusterIP: {{ include "app.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- end }}
+
+ExternalSecrets created:
+{{- range .Values.externalSecrets }}
+  - {{ .name }} → Secret {{ .target.name }}
+{{- else }}
+  (none)
+{{- end }}
