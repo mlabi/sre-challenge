@@ -59,6 +59,9 @@ apps: ## Data plane + Jenkins: Kafka, Postgres, Jenkins
 .PHONY: all
 all: ping cluster infra registry node-trust apps app-secrets ## Full bring-up. Jenkins controller image is built in-cluster by 40-jenkins.yml; app images + deploy come from Jenkins pipeline — run `make ci-trigger` afterwards.
 
+.PHONY: ci-deploy
+ci-deploy: ci-trigger ## Alias for `ci-trigger` (builds + deploys + smoke via Jenkins pipeline)
+
 .PHONY: ci-trigger
 ci-trigger: ## Trigger the Jenkins 'sre-challenge' pipeline and wait for it to finish (builds 3 apps + deploys + smoke)
 	@USER=admin; \

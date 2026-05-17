@@ -106,3 +106,56 @@ spring:
 
 management.server.port: 8081
 ```
+
+---
+
+## My deployment
+
+k3s on **Ubuntu 26.04 LTS**. The same playbooks work with one node or many —
+add hosts to `deploy/ansible/inventory/hosts.yml` and `make all` figures the
+rest out (control-plane IP, ingress hostname, NetworkPolicy CIDRs are derived
+from the inventory, not hard-coded).
+
+In addition to Kafka and Postgres I run:
+- **HashiCorp Vault** as the single source of truth for credentials
+  (Jenkins admin, Postgres app user, internal registry htpasswd). Workloads
+  never touch Vault directly — External Secrets Operator materializes
+  `Secret` objects in the consuming namespace.
+- **Jenkins** as the CI/CD plane. Controller runs with zero executors and
+  a frozen plugin set; build jobs spawn ephemeral kaniko pods that build
+  the three Spring Boot images and push them to an in-cluster registry,
+  then helm-upgrade them into `demo-front/back/reader`, then run an
+  end-to-end smoke test.
+
+### Install
+
+```bash
+make all                  # bring up k3s + Vault + ESO + Kafka + Postgres + registry + Jenkins
+make creds                # print Jenkins admin URL + password
+make ci-deploy            # trigger the pipeline (builds + deploys + smoke)
+```
+
+### Smoke test from your workstation
+
+The pipeline already runs a smoke test from inside the cluster. To repeat it
+from the outside (POST through the ingress, GET back from the reader, assert
+the message round-tripped through Kafka and Postgres):
+
+```bash
+make smoke
+```
+
+`FRONT_URL` and `READER_URL` are derived from `ingress_base_domain` in
+`group_vars/all.yml`. Override per call if needed:
+
+```bash
+FRONT_URL=https://front.192.168.10.151.nip.io \
+READER_URL=https://reader.192.168.10.151.nip.io \
+  make smoke
+```
+
+### Wipe
+
+```bash
+make wipe CONFIRM=YES     # uninstall k3s on every inventory node + clear local artifacts
+```
