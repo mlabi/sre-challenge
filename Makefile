@@ -76,7 +76,8 @@ ci-trigger: ## Trigger the Jenkins 'sre-challenge' pipeline and wait for it to f
 	RESULT=""; \
 	for i in $$(seq 1 240); do \
 	  sleep 5; \
-	  RESULT=$$(curl -sS --cacert $$CA -u "$$USER:$$PASS" "$$BASE/job/$$JOB/$$NEXT/api/json" 2>/dev/null | jq -r '.result // "null"'); \
+	  RESULT=$$(curl -sS --cacert $$CA -u "$$USER:$$PASS" "$$BASE/job/$$JOB/$$NEXT/api/json" 2>/dev/null | jq -r '.result // "null"' 2>/dev/null); \
+	  [ -z "$$RESULT" ] && RESULT=null; \
 	  if [ "$$RESULT" != "null" ] && [ -n "$$RESULT" ]; then break; fi; \
 	  if [ $$((i % 12)) -eq 0 ]; then echo "    still building (~$$((i*5/60)) min)"; fi; \
 	done; \
