@@ -134,6 +134,16 @@
         cmd: kubectl -n jenkins-build wait externalsecret/registry-pull --for=condition=Ready --timeout=2m
       changed_when: false
 
+    - name: Recreate ConfigMap with REGISTRY_HOST / REGISTRY_INTERNAL_HOST / INGRESS_BASE_DOMAIN — Jenkins agent pods envFrom this
+      ansible.builtin.shell:
+        cmd: |
+          kubectl -n jenkins-build create configmap sre-challenge-vars \
+            --from-literal=REGISTRY_HOST={{ registry_host }} \
+            --from-literal=REGISTRY_INTERNAL_HOST={{ registry_internal_host }} \
+            --from-literal=INGRESS_BASE_DOMAIN={{ ingress_base_domain }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+      changed_when: true
+
     - name: Recreate ConfigMap with Dockerfile + plugins.txt for the build Job
       ansible.builtin.shell:
         cmd: |

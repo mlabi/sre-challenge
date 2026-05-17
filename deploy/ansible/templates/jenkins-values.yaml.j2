@@ -98,11 +98,6 @@ controller:
                 triggers {
                   scm('H/5 * * * *')
                 }
-                environmentVariables {
-                  env('REGISTRY_HOST', '{{ registry_host }}')
-                  env('REGISTRY_INTERNAL_HOST', '{{ registry_internal_host }}')
-                  env('INGRESS_BASE_DOMAIN', '{{ ingress_base_domain }}')
-                }
               }
       script-security: |
         security:
