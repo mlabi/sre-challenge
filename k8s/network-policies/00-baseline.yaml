@@ -48,3 +48,26 @@ spec:
           port: 443
         - protocol: TCP
           port: 6443
+---
+# GKE Workload Identity: pods exchange their KSA for a GCP token by hitting the
+# node-local gke-metadata-server proxy at 169.254.169.254. Without this rule the
+# default-deny + internet-egress (which excepts link-local) traps WI clients
+# (kaniko -> Artifact Registry, ESO -> Secret Manager). Pods still need a WI
+# binding on their KSA to receive a usable token; this only opens the path.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-metadata-server
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 988
