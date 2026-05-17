@@ -6,6 +6,13 @@ CNPG_VERSION="${CNPG_VERSION:-0.22.1}"
 
 kubectl apply -f k8s/namespaces.yaml
 
+# Baseline NetworkPolicy (default-deny + DNS + k8s API egress) per managed ns.
+# Without this, helm-chart-rendered per-app NPs (e.g. back-egress-postgres) trap
+# the pod in a deny-everything-else state, including kube-dns lookups.
+for ns in kafka postgres demo-front demo-back demo-reader external-secrets cert-manager kafka-operator cnpg-system ingress-nginx jenkins jenkins-build; do
+  kubectl apply -n "$ns" -f k8s/network-policies/00-baseline.yaml
+done
+
 helm repo add strimzi https://strimzi.io/charts/ >/dev/null 2>&1 || true
 helm repo update strimzi >/dev/null
 
