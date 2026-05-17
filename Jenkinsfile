@@ -39,42 +39,16 @@ spec:
         limits:
           cpu: "2"
           memory: "3Gi"
-    # Kaniko runs as root (default) — required to unpack base image layers
-    # and preserve original file ownership during build. Allowed by the
-    # PSS baseline of jenkins-build; would be blocked by PSS restricted.
     - name: kaniko
       image: gcr.io/kaniko-project/executor:v1.23.2-debug
       command: ["sleep"]
       args: ["infinity"]
-      volumeMounts:
-        - name: dockerconfig
-          mountPath: /kaniko/.docker
-        - name: lab-ca
-          mountPath: /kaniko/ssl/certs/sre-lab-ca.crt
-          subPath: ca.crt
     - name: tools
       image: alpine/k8s:1.31.1
       command: ["sleep"]
       args: ["infinity"]
       securityContext:
         runAsUser: 1000
-      volumeMounts:
-        - name: lab-ca
-          mountPath: /tmp/lab-ca.crt
-          subPath: ca.crt
-  volumes:
-    - name: dockerconfig
-      secret:
-        secretName: registry-pull
-        items:
-          - key: .dockerconfigjson
-            path: config.json
-    - name: lab-ca
-      secret:
-        secretName: lab-ca
-        items:
-          - key: ca.crt
-            path: ca.crt
 '''
         }
     }
