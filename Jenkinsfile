@@ -1,14 +1,10 @@
 pipeline {
     agent {
         kubernetes {
-            label 'kaniko'
             defaultContainer 'tools'
             yaml '''
 apiVersion: v1
 kind: Pod
-metadata:
-  labels:
-    jenkins/label: kaniko
 spec:
   serviceAccountName: jenkins
   # Pod runs in jenkins-build ns (PSS baseline). No pod-level runAsNonRoot
@@ -77,7 +73,7 @@ spec:
             steps {
                 container('gradle') {
                     sh '''
-                        ./gradlew --no-daemon --warning-mode=all clean build -x test
+                        ./gradlew --no-daemon --warning-mode=summary clean build -x test
                         ls -la app/*/build/libs/
                     '''
                 }

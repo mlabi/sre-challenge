@@ -9,7 +9,9 @@ READER_URL="${READER_URL:-https://reader.192.168.10.51.nip.io}"
 WAIT_SECONDS="${WAIT_SECONDS:-15}"
 
 CURL_OPTS=()
-if [[ "${SKIP_CA_CHECK}" != "1" ]]; then
+if [[ "${SKIP_CA_CHECK}" == "1" ]]; then
+  CURL_OPTS+=(-k)
+else
   if [[ ! -f "${CA}" ]]; then
     echo "Lab CA not found at ${CA}. Extract it first:" >&2
     echo "  kubectl -n cert-manager get secret lab-ca-secret \\" >&2
@@ -23,7 +25,7 @@ MSG="smoke-$(date +%s)-$$"
 
 echo "==> POST to ${FRONT_URL}/api/v1/command"
 echo "    message=${MSG}"
-http_code=$(curl -sS "${CURL_OPTS[@]}" -o /tmp/front-resp -w '%{http_code}' \
+http_code=$(curl -sS ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} -o /tmp/front-resp -w '%{http_code}' \
   -X POST -H 'Content-Type: application/json' \
   -d "{\"message\":\"${MSG}\",\"loadFront\":1,\"loadBack\":1}" \
   "${FRONT_URL}/api/v1/command")
@@ -39,7 +41,7 @@ echo "==> Waiting ${WAIT_SECONDS}s for pipeline: front → kafka → back → po
 sleep "${WAIT_SECONDS}"
 
 echo "==> GET ${READER_URL}/api/v1/testEntity?size=100"
-result=$(curl -fsS "${CURL_OPTS[@]}" "${READER_URL}/api/v1/testEntity?size=100")
+result=$(curl -fsS ${CURL_OPTS[@]+"${CURL_OPTS[@]}"} "${READER_URL}/api/v1/testEntity?size=100")
 
 found=$(echo "${result}" | jq --arg m "${MSG}" '.content[]? | select(.message == $m)' 2>/dev/null || true)
 if [[ -z "${found}" ]]; then

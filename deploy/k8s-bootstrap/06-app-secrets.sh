@@ -32,8 +32,8 @@ spec:
     creationPolicy: Owner
     template:
       data:
-        username: app
-        password: "{{ .password }}"
+        SPRING_DATASOURCE_USERNAME: app
+        SPRING_DATASOURCE_PASSWORD: "{{ .password }}"
   data:
     - secretKey: password
       remoteRef:

@@ -22,8 +22,10 @@ repositories {
     mavenCentral()
 }
 
-sourceCompatibility = JavaVersion.VERSION_21
-targetCompatibility = JavaVersion.VERSION_21
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
 version = "0.1.0"
 ext["kotlin.version"] = kotlinVersion
 
@@ -50,8 +52,10 @@ subprojects {
     apply plugin: "java"
     apply plugin: "kotlin"
 
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    java {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
     kotlin {
         jvmToolchain(21)
     }
