@@ -70,11 +70,4 @@
         msg:
           - "Cluster wiped. All k3s state on box-1/2/3 is gone."
           - "Controller artifacts removed: init.json, kubeconfig, lab-ca.crt, fact cache."
-          - ""
-          - "Manual cleanup the playbook can't do:"
-          - "  1. podman trust for the OLD lab-ca:"
-          - "     rm -rf ~/.config/containers/certs.d/{{ registry_host }}"
-          - "  2. macOS keychain entry for the OLD lab-ca:"
-          - "     sudo security delete-certificate -c sre-lab-ca /Library/Keychains/System.keychain || true"
-          - ""
           - "Then run: make all"
