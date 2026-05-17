@@ -133,7 +133,7 @@ spec:
                             helm upgrade --install \$app charts/app \\
                                 --namespace demo-\$app \\
                                 -f charts/app/values-\$app.yaml \\
-                                --set image.repository=${REGISTRY_HOST}/\$app \\
+                                --set image.repository=${REGISTRY_INTERNAL_HOST}/\$app \\
                                 --set image.tag=${APP_VERSION} \\
                                 --set ingress.baseDomain=${INGRESS_BASE_DOMAIN} \\
                                 --wait --timeout=3m

@@ -1,6 +1,6 @@
 ---
 
-- name: Wipe k3s agents (box-2, box-3)
+- name: Wipe k3s agents (k3s_agent group)
   hosts: k3s_agent
   become: true
   gather_facts: false
@@ -20,7 +20,7 @@
         removes: /usr/local/bin/k3s-agent-uninstall.sh
       changed_when: true
 
-- name: Wipe k3s server (box-1)
+- name: Wipe k3s server (k3s_server group)
   hosts: k3s_server
   become: true
   gather_facts: false
@@ -68,6 +68,6 @@
     - name: Final note
       ansible.builtin.debug:
         msg:
-          - "Cluster wiped. All k3s state on box-1/2/3 is gone."
+          - "Cluster wiped. All k3s state on every inventory node is gone."
           - "Controller artifacts removed: init.json, kubeconfig, lab-ca.crt, fact cache."
           - "Then run: make all"

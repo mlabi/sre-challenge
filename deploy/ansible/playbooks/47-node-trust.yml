@@ -30,12 +30,33 @@
         - ca_copy.changed
       changed_when: true
 
-    - name: Restart k3s server (so containerd reloads system trust)
+    - name: Ensure /etc/rancher/k3s exists
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Configure containerd mirror so kubelet can pull via Service DNS
+      ansible.builtin.copy:
+        dest: /etc/rancher/k3s/registries.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          mirrors:
+            "{{ registry_internal_host }}":
+              endpoint:
+                - "https://{{ registry_host }}"
+      register: registries_yaml
+
+    - name: Restart k3s server (so containerd reloads system trust + registries.yaml)
       ansible.builtin.systemd:
         name: k3s
         state: restarted
       when:
-        - ca_copy.changed
+        - ca_copy.changed or registries_yaml.changed
         - inventory_hostname in groups['k3s_server']
 
     - name: Restart k3s-agent (workers)
@@ -43,7 +64,7 @@
         name: k3s-agent
         state: restarted
       when:
-        - ca_copy.changed
+        - ca_copy.changed or registries_yaml.changed
         - inventory_hostname in groups['k3s_agent']
 
     - name: Wait for API to be reachable again after k3s restart
@@ -54,4 +75,4 @@
       delegate_to: localhost
       become: false
       run_once: true
-      when: ca_copy.changed
+      when: ca_copy.changed or registries_yaml.changed

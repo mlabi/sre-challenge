@@ -1,8 +1,11 @@
 ANSIBLE_DIR := deploy/ansible
 PLAYBOOK    := cd $(ANSIBLE_DIR) && ansible-playbook
 
-GROUP_VARS ?= $(ANSIBLE_DIR)/inventory/group_vars/all.yml
-INGRESS_BASE_DOMAIN ?= $(shell awk -F'"' '/^ingress_base_domain:/ {print $$2}' $(GROUP_VARS))
+# Resolve the control-plane node IP from inventory the same way Ansible does
+# (so it works with any host name and any group_vars Jinja expression).
+# Picks the first host in the k3s_server group and reads its ansible_host.
+# Lazy `?=` so the shell only runs when a target actually expands the var.
+INGRESS_BASE_DOMAIN ?= $(shell cd $(ANSIBLE_DIR) && ansible-inventory --list 2>/dev/null | jq -r '.k3s_server.hosts[0] as $$h | ._meta.hostvars[$$h].ansible_host').nip.io
 REGISTRY_HOST       ?= registry.$(INGRESS_BASE_DOMAIN)
 JENKINS_HOST        ?= jenkins.$(INGRESS_BASE_DOMAIN)
 FRONT_HOST          ?= front.$(INGRESS_BASE_DOMAIN)
@@ -24,12 +27,12 @@ collections: ## Install required Ansible collections (one-time on the controller
 	ansible-galaxy collection install community.general ansible.posix
 
 .PHONY: bootstrap
-bootstrap: ## Generate USB images for the three boxes (SSH key + cloud-init for box-1/2/3)
+bootstrap: ## Generate USB images for inventory hosts (SSH key + cloud-init)
 	cd $(ANSIBLE_DIR)/bootstrap && ./00-generate-ssh-key.sh
 	cd $(ANSIBLE_DIR)/bootstrap/ubuntu && ./generate.sh
 
 .PHONY: ping
-ping: ## Ansible reachability check to box-1/2/3
+ping: ## Ansible reachability check to every inventory host
 	cd $(ANSIBLE_DIR) && ansible all -m ping
 
 .PHONY: cluster

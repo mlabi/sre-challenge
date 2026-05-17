@@ -1,6 +1,6 @@
 ---
 
-- name: k3s server on box-2
+- name: k3s server (k3s_server group)
   hosts: k3s_server
   become: true
   gather_facts: false
@@ -50,7 +50,7 @@
       delegate_to: localhost
       become: false
 
-- name: k3s agent on box-3
+- name: k3s agents (k3s_agent group)
   hosts: k3s_agent
   become: true
   gather_facts: false
@@ -101,6 +101,6 @@
     - name: Summary
       ansible.builtin.debug:
         msg:
-          - "k3s API:      https://{{ hostvars['box-2']['ansible_host'] }}:6443"
+          - "k3s API:      https://{{ hostvars[groups['k3s_server'][0]]['ansible_host'] }}:6443"
           - "kubeconfig:   {{ kubeconfig }}"
           - "Use with:     export KUBECONFIG={{ kubeconfig }}"
