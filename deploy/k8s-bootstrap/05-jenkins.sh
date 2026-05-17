@@ -53,6 +53,13 @@ kubectl -n jenkins-build create serviceaccount jenkins --dry-run=client -o yaml 
 kubectl -n jenkins-build annotate sa jenkins \
   iam.gke.io/gcp-service-account="${JENKINS_BUILD_GSA}" --overwrite
 
+# ConfigMap consumed via envFrom by Jenkinsfile agent pods (REGISTRY_URL +
+# INGRESS_DOMAIN bash vars available to kaniko / helm stages).
+kubectl -n jenkins-build create configmap sre-challenge-vars \
+  --from-literal=REGISTRY_URL="${REGISTRY_URL}" \
+  --from-literal=INGRESS_DOMAIN="${INGRESS_DOMAIN}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 cat <<EOF | kubectl apply -f -
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret

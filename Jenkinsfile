@@ -32,6 +32,9 @@ spec:
       args: ["infinity"]
       securityContext:
         runAsUser: 1000
+      envFrom:
+        - configMapRef:
+            name: sre-challenge-vars
       resources:
         requests:
           cpu: "500m"
@@ -43,12 +46,18 @@ spec:
       image: gcr.io/kaniko-project/executor:v1.23.2-debug
       command: ["sleep"]
       args: ["infinity"]
+      envFrom:
+        - configMapRef:
+            name: sre-challenge-vars
     - name: tools
       image: alpine/k8s:1.31.1
       command: ["sleep"]
       args: ["infinity"]
       securityContext:
         runAsUser: 1000
+      envFrom:
+        - configMapRef:
+            name: sre-challenge-vars
 '''
         }
     }
@@ -60,10 +69,7 @@ spec:
     }
 
     environment {
-        REGISTRY_HOST          = "${env.REGISTRY_HOST          ?: 'registry.192.168.10.51.nip.io'}"
-        REGISTRY_INTERNAL_HOST = "${env.REGISTRY_INTERNAL_HOST ?: 'registry.registry.svc.cluster.local'}"
-        INGRESS_BASE_DOMAIN    = "${env.INGRESS_BASE_DOMAIN    ?: '192.168.10.51.nip.io'}"
-        APP_VERSION            = "${env.BUILD_NUMBER ? '0.1.' + env.BUILD_NUMBER : '0.1.0'}"
+        APP_VERSION = "${env.BUILD_NUMBER ? '0.1.' + env.BUILD_NUMBER : '0.1.0'}"
     }
 
     stages {
@@ -71,7 +77,7 @@ spec:
             steps {
                 container('gradle') {
                     sh '''
-                        ./gradlew --no-daemon clean build -x test
+                        ./gradlew --no-daemon --warning-mode=all clean build -x test
                         ls -la app/*/build/libs/
                     '''
                 }
@@ -87,11 +93,11 @@ spec:
                                 /kaniko/executor \\
                                     --context=\$PWD \\
                                     --dockerfile=docker/Dockerfile \\
-                                    --destination=${REGISTRY_INTERNAL_HOST}/${app}:${APP_VERSION} \\
-                                    --destination=${REGISTRY_INTERNAL_HOST}/${app}:latest \\
+                                    --destination=\$REGISTRY_URL/${app}:${APP_VERSION} \\
+                                    --destination=\$REGISTRY_URL/${app}:latest \\
                                     --build-arg JAR_FILE=app/${app}/build/libs/${app}-0.1.0.jar \\
                                     --cache=true \\
-                                    --cache-repo=${REGISTRY_INTERNAL_HOST}/kaniko-cache
+                                    --cache-repo=\$REGISTRY_URL/kaniko-cache
                             """
                         }
                     }
@@ -107,9 +113,9 @@ spec:
                             helm upgrade --install \$app charts/app \\
                                 --namespace demo-\$app \\
                                 -f charts/app/values-\$app.yaml \\
-                                --set image.repository=${REGISTRY_HOST}/\$app \\
+                                --set image.repository=\$REGISTRY_URL/\$app \\
                                 --set image.tag=${APP_VERSION} \\
-                                --set ingress.baseDomain=${INGRESS_BASE_DOMAIN} \\
+                                --set ingress.baseDomain=\$INGRESS_DOMAIN \\
                                 --wait --timeout=3m
                         done
                     """
