@@ -28,6 +28,31 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: postgres
 ---
+# CNPG operator polls each instance's local manager API (port 8000) to
+# extract pod status. Without this ingress, the cluster never goes Ready
+# even though the postgres pod itself is Running.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-cnpg-operator
+  namespace: postgres
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: demo-pg
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 5432
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -63,6 +88,31 @@ spec:
   egress:
     - to:
         - namespaceSelector: {}
+---
+# cert-manager calls the ACME directory at acme-v02.api.letsencrypt.org —
+# resolves to public IPs outside any RFC1918 range, so 443 to the internet
+# (minus internal CIDRs) is required for ClusterIssuer to issue certs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-acme
+  namespace: cert-manager
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -25,6 +25,10 @@ done
 kubectl apply -f k8s/network-policies/external-secrets.yaml
 kubectl apply -f k8s/network-policies/operators.yaml
 kubectl apply -f k8s/network-policies/jenkins-build.yaml
+kubectl apply -f k8s/network-policies/ingress-nginx.yaml
+kubectl apply -f k8s/network-policies/jenkins.yaml
+kubectl apply -f k8s/network-policies/kafka.yaml
+kubectl apply -f k8s/network-policies/postgres.yaml
 
 helm repo add strimzi https://strimzi.io/charts/ >/dev/null 2>&1 || true
 helm repo update strimzi >/dev/null

@@ -28,6 +28,7 @@ tf-plan: ## terraform plan
 
 .PHONY: tf-apply
 tf-apply: ## terraform apply (creates VPC + KMS + AR + GKE; ~10-12 min first run)
+	bash deploy/terraform/import-existing.sh
 	$(TF) apply
 
 .PHONY: tf-destroy
@@ -85,14 +86,14 @@ ci-trigger: ## Trigger Jenkins pipeline and wait for completion
 	JOB=sre-challenge ; \
 	JAR=/tmp/jenkins-cookies.txt ; \
 	rm -f $$JAR ; \
-	CRUMB=$$(curl -sS -u "$$USER:$$PASS" -c $$JAR -b $$JAR "$$BASE/crumbIssuer/api/json" | jq -r '.crumb // empty') ; \
+	CRUMB=$$(curl -sSk -u "$$USER:$$PASS" -c $$JAR -b $$JAR "$$BASE/crumbIssuer/api/json" | jq -r '.crumb // empty') ; \
 	[ -n "$$CRUMB" ] || { echo "Failed to get CSRF crumb"; exit 1; } ; \
-	NEXT=$$(curl -sS -u "$$USER:$$PASS" -c $$JAR -b $$JAR "$$BASE/job/$$JOB/api/json" | jq -r '.nextBuildNumber') ; \
+	NEXT=$$(curl -sSk -u "$$USER:$$PASS" -c $$JAR -b $$JAR "$$BASE/job/$$JOB/api/json" | jq -r '.nextBuildNumber') ; \
 	echo "Triggering build #$$NEXT at $$BASE" ; \
-	curl -fsS -u "$$USER:$$PASS" -c $$JAR -b $$JAR -H "Jenkins-Crumb: $$CRUMB" -X POST "$$BASE/job/$$JOB/build" -o /dev/null ; \
+	curl -fsSk -u "$$USER:$$PASS" -c $$JAR -b $$JAR -H "Jenkins-Crumb: $$CRUMB" -X POST "$$BASE/job/$$JOB/build" -o /dev/null ; \
 	for i in $$(seq 1 240); do \
 	  sleep 5 ; \
-	  RESULT=$$(curl -sS -u "$$USER:$$PASS" "$$BASE/job/$$JOB/$$NEXT/api/json" 2>/dev/null | jq -r '.result // "null"' 2>/dev/null) ; \
+	  RESULT=$$(curl -sSk -u "$$USER:$$PASS" "$$BASE/job/$$JOB/$$NEXT/api/json" 2>/dev/null | jq -r '.result // "null"' 2>/dev/null) ; \
 	  [ -z "$$RESULT" ] && RESULT=null ; \
 	  if [ "$$RESULT" != "null" ]; then break ; fi ; \
 	  if [ $$((i % 12)) -eq 0 ]; then echo "  still building (~$$((i*5/60)) min)" ; fi ; \

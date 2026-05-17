@@ -5,9 +5,16 @@ CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.17.1}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 
 if [[ -z "${ACME_EMAIL}" ]]; then
-  echo "ACME_EMAIL not set. Let's Encrypt rejects placeholders like admin@example.com" >&2
-  echo "Re-run with a real address:" >&2
-  echo "  ACME_EMAIL=you@yourdomain.tld $0" >&2
+  if [[ -t 0 ]]; then
+    read -rp "ACME_EMAIL for Let's Encrypt (real address — no example.com): " ACME_EMAIL
+  fi
+  if [[ -z "${ACME_EMAIL}" ]]; then
+    echo "ACME_EMAIL still empty. Re-run with: ACME_EMAIL=you@yourdomain.tld $0" >&2
+    exit 1
+  fi
+fi
+if [[ "${ACME_EMAIL}" == *@example.com ]]; then
+  echo "Let's Encrypt rejects example.com — provide a real address." >&2
   exit 1
 fi
 

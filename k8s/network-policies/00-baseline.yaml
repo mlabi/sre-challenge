@@ -49,6 +49,22 @@ spec:
         - protocol: TCP
           port: 6443
 ---
+# Tightly-coupled multi-pod components (Strimzi Kafka broker <-> entity-operator,
+# CNPG primary <-> replicas) need to talk within their own namespace. The
+# default-deny applies per-pod, so we open intra-namespace egress explicitly.
+# Cross-namespace traffic still requires its own NP.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace-egress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+---
 # GKE Workload Identity: pods exchange their KSA for a GCP token by hitting the
 # node-local gke-metadata-server proxy at 169.254.169.254. Without this rule the
 # default-deny + internet-egress (which excepts link-local) traps WI clients
