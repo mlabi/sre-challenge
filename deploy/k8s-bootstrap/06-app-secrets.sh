@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID="$(cd deploy/terraform && terraform output -raw project_id)"
-
-if ! gcloud secrets describe postgres-app-password --project="${PROJECT_ID}" >/dev/null 2>&1; then
-  PW=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | cut -c1-32)
-  printf '%s' "${PW}" | gcloud secrets create postgres-app-password \
-    --project="${PROJECT_ID}" --replication-policy=automatic --data-file=-
-fi
+# Note: postgres-app-password in GCP Secret Manager is provisioned in
+# 04-operators.sh (before the CNPG cluster init), so the bootstrap secret
+# CNPG reads for user 'app' matches the password ESO syncs here.
 
 kubectl apply -f k8s/eso/secret-store-kafka.yaml
 kubectl wait clustersecretstore/kafka-secrets --for=condition=Ready --timeout=2m

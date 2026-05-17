@@ -50,7 +50,7 @@ ingress:
   hostname: ""
   baseDomain: REPLACE-ME-via-helm-set
   annotations:
-    cert-manager.io/cluster-issuer: lab-ca
+    cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 
