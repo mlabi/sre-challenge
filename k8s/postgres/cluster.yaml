@@ -1,0 +1,38 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: demo-pg
+  namespace: postgres
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  primaryUpdateStrategy: unsupervised
+
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      secret:
+        name: demo-pg-app
+
+  storage:
+    size: 5Gi
+
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: 128MB
+    pg_hba:
+      - "hostnossl all all 0.0.0.0/0 reject"
+      - "hostnossl all all ::/0 reject"
+
+  monitoring:
+    enablePodMonitor: false

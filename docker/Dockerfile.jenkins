@@ -1,0 +1,7 @@
+FROM jenkins/jenkins:2.555.2-jdk21
+
+USER root
+COPY plugins.txt /usr/share/jenkins/ref/plugins.txt
+RUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt
+
+USER jenkins

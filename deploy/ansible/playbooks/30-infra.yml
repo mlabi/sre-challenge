@@ -1,0 +1,113 @@
+---
+
+- name: Infrastructure manifests (Kafka + Postgres)
+  hosts: localhost
+  gather_facts: false
+
+  environment:
+    KUBECONFIG: "{{ k3s_kubeconfig }}"
+
+  vars:
+    repo_root: "{{ playbook_dir }}/../../.."
+    vault_namespace: vault
+    vault_init_file: "{{ vault_lab_dir }}/init.json"
+    kafka_manifest: "{{ repo_root }}/k8s/kafka/kafka-cluster-{{ kafka_mode }}.yaml"
+
+  tasks:
+    - name: Apply namespaces
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/namespaces.yaml
+      changed_when: true
+
+    - name: Apply Kafka cluster CR (mode={{ kafka_mode }})
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ kafka_manifest }}
+      changed_when: true
+
+    - name: Wait for Kafka cluster Ready (can take 3-5 minutes)
+      ansible.builtin.command:
+        cmd: kubectl wait kafka/demo -n kafka --for=condition=Ready --timeout=10m
+      changed_when: false
+
+    - name: Apply KafkaTopic testCommand
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/kafka/kafka-topic.yaml
+      changed_when: true
+
+    - name: Wait for KafkaTopic Ready
+      ansible.builtin.command:
+        cmd: kubectl wait kafkatopic/testcommand -n kafka --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Apply KafkaUsers (front producer, back consumer) with ACLs
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/kafka/users.yaml
+      changed_when: true
+
+    - name: Wait for KafkaUsers Ready (User Operator generates per-user certs)
+      ansible.builtin.command:
+        cmd: kubectl wait kafkauser/{{ item }} -n kafka --for=condition=Ready --timeout=2m
+      loop:
+        - front
+        - back
+      changed_when: false
+
+    - name: Load Vault root token
+      ansible.builtin.set_fact:
+        vault_root_token: "{{ (lookup('file', vault_init_file) | from_json).root_token }}"
+      no_log: true
+
+    - name: Check whether postgres/app secret exists in Vault
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }} vault kv get -format=json secret/postgres/app
+      register: pg_kv_check
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Generate Postgres app password (only if not in Vault yet)
+      ansible.builtin.set_fact:
+        pg_new_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+      when: pg_kv_check.rc != 0
+      no_log: true
+
+    - name: Write Postgres app credentials to Vault
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }} vault kv put secret/postgres/app username=app password={{ pg_new_password }}
+      when: pg_kv_check.rc != 0
+      changed_when: true
+      no_log: true
+
+    - name: Render Postgres ExternalSecret
+      ansible.builtin.template:
+        src: ../templates/postgres-external-secret.yaml.j2
+        dest: /tmp/postgres-external-secret.yaml
+        mode: "0644"
+
+    - name: Apply Postgres ExternalSecret
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/postgres-external-secret.yaml
+      changed_when: true
+
+    - name: Wait for ExternalSecret to materialize the demo-pg-app Secret
+      ansible.builtin.command:
+        cmd: kubectl -n postgres wait externalsecret/demo-pg-app --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Apply CNPG Cluster CR
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/postgres/cluster.yaml
+      changed_when: true
+
+    - name: Wait for CNPG Cluster Ready (can take 2-3 minutes)
+      ansible.builtin.command:
+        cmd: kubectl wait cluster.postgresql.cnpg.io/demo-pg -n postgres --for=condition=Ready --timeout=10m
+      changed_when: false
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Kafka bootstrap: demo-kafka-bootstrap.kafka.svc.cluster.local:9092"
+          - "Postgres r/w:    demo-pg-rw.postgres.svc.cluster.local:5432"
+          - "Postgres r/o:    demo-pg-ro.postgres.svc.cluster.local:5432"
+          - "Postgres creds:  Vault path secret/postgres/app (synced to Secret demo-pg-app in ns postgres)"

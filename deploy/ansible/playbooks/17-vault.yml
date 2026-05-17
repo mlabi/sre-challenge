@@ -1,0 +1,223 @@
+---
+
+- name: Vault standalone + initial config
+  hosts: localhost
+  gather_facts: false
+
+  environment:
+    KUBECONFIG: "{{ k3s_kubeconfig }}"
+
+  vars:
+    repo_root: "{{ playbook_dir }}/../../.."
+    vault_namespace: vault
+    vault_init_file: "{{ vault_lab_dir }}/init.json"
+
+  tasks:
+    - name: Ensure local Vault init dir exists (chmod 0700)
+      ansible.builtin.file:
+        path: "{{ vault_lab_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: helm repo add hashicorp
+      ansible.builtin.command:
+        cmd: helm repo add hashicorp https://helm.releases.hashicorp.com
+      register: r
+      changed_when: "'already exists' not in r.stderr"
+      failed_when:
+        - r.rc != 0
+        - "'already exists' not in r.stderr"
+
+    - name: helm repo update
+      ansible.builtin.command: helm repo update
+      changed_when: false
+
+    - name: Ensure vault namespace exists (Cert needs it before helm install)
+      ansible.builtin.command:
+        cmd: kubectl create namespace {{ vault_namespace }} --dry-run=client -o yaml
+      register: vault_ns_yaml
+      changed_when: false
+
+    - name: Apply vault namespace
+      ansible.builtin.command:
+        cmd: kubectl apply -f -
+        stdin: "{{ vault_ns_yaml.stdout }}"
+      changed_when: true
+
+    - name: Apply Vault TLS Certificate (cert-manager renders Secret vault-tls)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/vault/certificate.yaml
+      changed_when: true
+
+    - name: Wait for Vault TLS cert Ready
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} wait certificate/vault-tls --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Install Vault (standalone, file storage, TLS)
+      ansible.builtin.command:
+        cmd: >
+          helm upgrade --install vault hashicorp/vault
+          --namespace {{ vault_namespace }} --create-namespace
+          --version {{ vault_chart_version }}
+          -f {{ repo_root }}/k8s/vault/values.yaml
+      changed_when: true
+
+    - name: Detect pending StatefulSet update (chart uses OnDelete strategy)
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} get sts vault -o jsonpath={.status.updateRevision}|{.status.currentRevision}
+      register: sts_revs
+      changed_when: false
+      failed_when: false
+
+    - name: Force-delete vault-0 if StatefulSet revision drifted
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} delete pod vault-0 --grace-period=30 --ignore-not-found
+      when:
+        - sts_revs.rc == 0
+        - "'|' in sts_revs.stdout"
+        - sts_revs.stdout.split('|')[0] != sts_revs.stdout.split('|')[1]
+        - sts_revs.stdout.split('|')[0] != ''
+      changed_when: true
+
+    - name: Wait for vault-0 pod to be created by the StatefulSet
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} get pod vault-0
+      register: vault_pod_exists
+      retries: 30
+      delay: 5
+      until: vault_pod_exists.rc == 0
+      changed_when: false
+
+    - name: Wait for vault-0 pod to be Running (not yet Ready — Vault is sealed)
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} wait --for=jsonpath='{.status.phase}'=Running pod/vault-0 --timeout=3m
+      changed_when: false
+
+    - name: Check Vault status (retry until vault binary responds)
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} exec vault-0 -- vault status -format=json
+      register: vault_status_raw
+      changed_when: false
+      failed_when: false
+      retries: 30
+      delay: 2
+      until: vault_status_raw.rc in [0, 1, 2] and vault_status_raw.stdout != ""
+
+    - name: Parse Vault status (defaults if status command failed)
+      ansible.builtin.set_fact:
+        vault_initialized: "{{ (vault_status_raw.stdout | default('{}', true) | from_json).initialized | default(false) }}"
+        vault_sealed: "{{ (vault_status_raw.stdout | default('{}', true) | from_json).sealed | default(true) }}"
+
+    - name: Initialize Vault (1 key share — lab simplicity)
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} exec vault-0 -- vault operator init -key-shares=1 -key-threshold=1 -format=json
+      register: vault_init_out
+      when: not vault_initialized
+      changed_when: true
+      no_log: true
+
+    - name: Save Vault init artifacts to controller (chmod 0600)
+      ansible.builtin.copy:
+        dest: "{{ vault_init_file }}"
+        content: "{{ vault_init_out.stdout }}"
+        mode: "0600"
+      when: not vault_initialized
+      no_log: true
+
+    - name: Load Vault init artifacts from controller
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_file) | from_json }}"
+      no_log: true
+
+    - name: Extract root token + unseal key
+      ansible.builtin.set_fact:
+        vault_root_token: "{{ vault_init.root_token }}"
+        vault_unseal_key: "{{ vault_init.unseal_keys_b64[0] }}"
+      no_log: true
+
+    - name: Unseal Vault
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} exec vault-0 -- vault operator unseal {{ vault_unseal_key }}
+      when: vault_sealed
+      changed_when: true
+      no_log: true
+
+    - name: Wait for vault-0 Ready
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} wait --for=condition=Ready pod/vault-0 --timeout=2m
+      changed_when: false
+
+    - name: Enable KV v2 at secret/
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }} \
+            vault secrets list -format=json | grep -q '"secret/"' || \
+          kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }} \
+            vault secrets enable -version=2 -path=secret kv
+      register: kv_setup
+      changed_when: "'Success' in kv_setup.stdout or 'enabled' in kv_setup.stdout"
+      no_log: true
+
+    - name: Enable Kubernetes auth method
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }} \
+            vault auth list -format=json | grep -q '"kubernetes/"' || \
+          kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }} \
+            vault auth enable kubernetes
+      register: auth_setup
+      changed_when: "'Success' in auth_setup.stdout or 'enabled' in auth_setup.stdout"
+      no_log: true
+
+    - name: Configure Kubernetes auth (host + CA from in-pod SA)
+      ansible.builtin.command:
+        cmd: >
+          kubectl -n {{ vault_namespace }} exec vault-0 --
+          env VAULT_TOKEN={{ vault_root_token }}
+          vault write auth/kubernetes/config
+          kubernetes_host=https://kubernetes.default.svc
+          kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      changed_when: true
+      no_log: true
+
+    - name: Write 'external-secrets' policy (allows read on secret/data/*)
+      ansible.builtin.shell:
+        cmd: |
+          kubectl -n {{ vault_namespace }} exec -i vault-0 -- env VAULT_TOKEN={{ vault_root_token }} \
+            vault policy write external-secrets - <<'EOF'
+          path "secret/data/*" {
+            capabilities = ["read"]
+          }
+          path "secret/metadata/*" {
+            capabilities = ["read", "list"]
+          }
+          EOF
+      changed_when: true
+      no_log: true
+
+    - name: Create Vault role for ESO SA (external-secrets/external-secrets)
+      ansible.builtin.command:
+        cmd: >
+          kubectl -n {{ vault_namespace }} exec vault-0 --
+          env VAULT_TOKEN={{ vault_root_token }}
+          vault write auth/kubernetes/role/external-secrets
+          bound_service_account_names=external-secrets
+          bound_service_account_namespaces=external-secrets
+          policies=external-secrets
+          ttl=24h
+      changed_when: true
+      no_log: true
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Vault running:   https://vault.{{ vault_namespace }}.svc.cluster.local:8200 (TLS via lab-ca)"
+          - "UI port-forward: kubectl -n {{ vault_namespace }} port-forward svc/vault 8200:8200"
+          - "                 then https://localhost:8200 (browser will trust if lab-ca imported)"
+          - "Init artifacts:  {{ vault_init_file }} (chmod 0600 — keep safe!)"
+          - "Auth methods:    kubernetes (for ESO + workloads)"
+          - "Secret engines:  KV v2 at secret/"
+          - "Policies:        external-secrets (read on secret/data/*, secret/metadata/*)"

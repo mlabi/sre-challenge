@@ -14,3 +14,7 @@
 ### Gradle template
 .gradle
 build/
+# Ansible runtime
+deploy/ansible/.ansible_facts_cache/
+deploy/ansible/**/*.retry
+deploy/ansible/bootstrap/ubuntu/dist/

@@ -1,0 +1,120 @@
+---
+
+- name: Strimzi + CNPG operators
+  hosts: localhost
+  gather_facts: false
+
+  environment:
+    KUBECONFIG: "{{ k3s_kubeconfig }}"
+
+  tasks:
+    - name: helm repo add strimzi
+      ansible.builtin.command:
+        cmd: helm repo add strimzi https://strimzi.io/charts/
+      register: r
+      changed_when: "'already exists' not in r.stderr"
+      failed_when:
+        - r.rc != 0
+        - "'already exists' not in r.stderr"
+
+    - name: helm repo add cnpg
+      ansible.builtin.command:
+        cmd: helm repo add cnpg https://cloudnative-pg.github.io/charts
+      register: r
+      changed_when: "'already exists' not in r.stderr"
+      failed_when:
+        - r.rc != 0
+        - "'already exists' not in r.stderr"
+
+    - name: helm repo update
+      ansible.builtin.command: helm repo update
+      changed_when: false
+
+    - name: Temp dir for Strimzi release tarball
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: strimzi
+      register: strimzi_tmp
+
+    - name: Download Strimzi {{ strimzi_version }} release tarball
+      ansible.builtin.get_url:
+        url: "https://github.com/strimzi/strimzi-kafka-operator/releases/download/{{ strimzi_version }}/strimzi-{{ strimzi_version }}.tar.gz"
+        dest: "{{ strimzi_tmp.path }}/strimzi.tar.gz"
+        mode: "0644"
+
+    - name: Extract Strimzi tarball (system tar handles .tar.gz on macOS+Linux)
+      ansible.builtin.command:
+        cmd: tar -xzf strimzi.tar.gz
+        chdir: "{{ strimzi_tmp.path }}"
+        creates: "{{ strimzi_tmp.path }}/strimzi-{{ strimzi_version }}"
+
+    - name: List Strimzi CRD files
+      ansible.builtin.find:
+        paths: "{{ strimzi_tmp.path }}/strimzi-{{ strimzi_version }}/install/cluster-operator"
+        patterns: "04*-Crd-*.yaml"
+      register: strimzi_crd_files
+
+    - name: Apply Strimzi CRDs (server-side, force conflicts)
+      ansible.builtin.command:
+        cmd: kubectl apply --server-side --force-conflicts -f {{ item.path }}
+      loop: "{{ strimzi_crd_files.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      register: strimzi_crds
+      changed_when: "'configured' in strimzi_crds.stdout or 'created' in strimzi_crds.stdout"
+
+    - name: Install Strimzi (kafka-operator ns, watches all namespaces)
+      ansible.builtin.command:
+        cmd: >
+          helm upgrade --install strimzi-kafka-operator strimzi/strimzi-kafka-operator
+          --namespace kafka-operator --create-namespace
+          --version {{ strimzi_version }}
+          --set watchAnyNamespace=true
+          --wait
+      changed_when: true
+
+    - name: Restart Strimzi cluster operator (re-read CRDs after upgrade)
+      ansible.builtin.command:
+        cmd: kubectl -n kafka-operator rollout restart deployment/strimzi-cluster-operator
+      when: strimzi_crds.changed
+      changed_when: true
+
+    - name: Restart Strimzi entity-operator if present (it's per-cluster, may not exist yet)
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          for d in $(kubectl -n kafka get deploy -o name 2>/dev/null | grep entity-operator || true); do
+            kubectl -n kafka rollout restart "$d"
+          done
+      when: strimzi_crds.changed
+      changed_when: true
+
+    - name: Cleanup Strimzi temp dir
+      ansible.builtin.file:
+        path: "{{ strimzi_tmp.path }}"
+        state: absent
+
+    - name: Install CloudNativePG (cnpg-system ns)
+      ansible.builtin.command:
+        cmd: >
+          helm upgrade --install cnpg cnpg/cloudnative-pg
+          --namespace cnpg-system --create-namespace
+          --version {{ cnpg_version }}
+          --wait
+      changed_when: true
+
+    - name: Verify operator pods
+      ansible.builtin.command:
+        cmd: kubectl get pods -n {{ item }}
+      loop:
+        - kafka-operator
+        - cnpg-system
+      register: r
+      changed_when: false
+
+    - name: Output
+      ansible.builtin.debug:
+        msg: "{{ item.stdout_lines }}"
+      loop: "{{ r.results }}"
+      loop_control:
+        label: "{{ item.item }}"

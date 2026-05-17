@@ -1,0 +1,42 @@
+---
+
+- name: ingress-nginx via helm
+  hosts: localhost
+  gather_facts: false
+
+  environment:
+    KUBECONFIG: "{{ k3s_kubeconfig }}"
+
+  tasks:
+    - name: helm repo add ingress-nginx
+      ansible.builtin.command:
+        cmd: helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+      register: repo_add
+      changed_when: "'already exists' not in repo_add.stderr"
+      failed_when:
+        - repo_add.rc != 0
+        - "'already exists' not in repo_add.stderr"
+
+    - name: helm repo update
+      ansible.builtin.command: helm repo update
+      changed_when: false
+
+    - name: helm upgrade --install ingress-nginx
+      ansible.builtin.command:
+        cmd: >
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx
+          --namespace ingress-nginx --create-namespace
+          --set controller.service.type=LoadBalancer
+          --set controller.publishService.enabled=true
+          --wait
+      changed_when: true
+
+    - name: Show ingress-nginx service
+      ansible.builtin.command:
+        cmd: kubectl -n ingress-nginx get svc ingress-nginx-controller
+      register: svc_out
+      changed_when: false
+
+    - name: Output
+      ansible.builtin.debug:
+        var: svc_out.stdout_lines

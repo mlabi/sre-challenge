@@ -1,0 +1,54 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: front
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: demo
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: testCommand
+        operations:
+          - Describe
+          - Write
+      - resource:
+          type: cluster
+        operations:
+          - DescribeConfigs
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: back
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: demo
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: testCommand
+        operations:
+          - Describe
+          - Read
+      - resource:
+          type: group
+          name: back-
+          patternType: prefix
+        operations:
+          - Read
+          - Describe
+      - resource:
+          type: cluster
+        operations:
+          - DescribeConfigs

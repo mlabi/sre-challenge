@@ -1,0 +1,289 @@
+---
+
+- name: Jenkins (admin from Vault via ESO)
+  hosts: localhost
+  gather_facts: false
+
+  environment:
+    KUBECONFIG: "{{ k3s_kubeconfig }}"
+
+  vars:
+    repo_root: "{{ playbook_dir }}/../../.."
+    vault_namespace: vault
+    vault_init_file: "{{ vault_lab_dir }}/init.json"
+
+  tasks:
+
+    - name: Probe jenkins-0 readiness
+      ansible.builtin.command:
+        cmd: >
+          kubectl -n jenkins get pod jenkins-0
+          -o jsonpath={.status.containerStatuses[?(@.name=="jenkins")].ready}
+      register: jenkins_ready
+      changed_when: false
+      failed_when: false
+
+    - name: Reset Jenkins helm release + PVC when pod is stuck
+      ansible.builtin.shell:
+        cmd: |
+          set +e
+          helm uninstall jenkins -n jenkins --ignore-not-found --wait
+          kubectl -n jenkins delete pvc jenkins --ignore-not-found --wait --timeout=120s
+          kubectl -n jenkins delete pod jenkins-0 --ignore-not-found --grace-period=0 --force 2>/dev/null
+          exit 0
+      when:
+        - jenkins_ready.rc == 0
+        - jenkins_ready.stdout in ["false", ""]
+      changed_when: true
+
+    - name: Load Vault root token (from 17-vault.yml init artifacts)
+      ansible.builtin.set_fact:
+        vault_root_token: "{{ (lookup('file', vault_init_file) | from_json).root_token }}"
+      no_log: true
+
+    - name: Check whether Jenkins admin secret exists in Vault
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }} vault kv get -format=json secret/jenkins/admin
+      register: jenkins_kv_check
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Generate Jenkins admin password (random, only if not in Vault yet)
+      ansible.builtin.set_fact:
+        jenkins_new_password: "{{ lookup('password', '/dev/null length=24 chars=ascii_letters,digits') }}"
+      when: jenkins_kv_check.rc != 0
+      no_log: true
+
+    - name: Write Jenkins admin credentials to Vault
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }} vault kv put secret/jenkins/admin username=admin password={{ jenkins_new_password }}
+      when: jenkins_kv_check.rc != 0
+      changed_when: true
+      no_log: true
+
+    - name: Apply namespaces from single source of truth
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/namespaces.yaml
+      changed_when: true
+
+    - name: Render baseline NetworkPolicies for jenkins-build
+      ansible.builtin.template:
+        src: "{{ repo_root }}/k8s/network-policies/00-baseline.yaml.j2"
+        dest: /tmp/np-baseline.yaml
+        mode: "0644"
+
+    - name: Apply baseline NetworkPolicies to jenkins-build ns
+      ansible.builtin.command:
+        cmd: kubectl apply -n jenkins-build -f /tmp/np-baseline.yaml
+      changed_when: true
+
+    - name: Apply jenkins-build per-namespace NetworkPolicies
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/network-policies/jenkins-build.yaml
+      changed_when: true
+
+    - name: Render registry-pull ClusterExternalSecret
+      ansible.builtin.template:
+        src: "{{ repo_root }}/k8s/eso/cluster-external-secret-registry-pull.yaml.j2"
+        dest: /tmp/cluster-external-secret-registry-pull.yaml
+        mode: "0644"
+
+    - name: Apply registry-pull ClusterExternalSecret
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/cluster-external-secret-registry-pull.yaml
+      changed_when: true
+
+    - name: Wait for ESO to materialize registry-pull in jenkins ns
+      ansible.builtin.command:
+        cmd: kubectl -n jenkins wait externalsecret/registry-pull --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Apply cert-manager ClusterSecretStore (for lab-ca sync)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/eso/secret-store-cert-manager.yaml
+      changed_when: true
+
+    - name: Wait for cert-manager-secrets ClusterSecretStore Ready
+      ansible.builtin.command:
+        cmd: kubectl wait clustersecretstore/cert-manager-secrets --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Apply ExternalSecret lab-ca (cert-manager → jenkins ns)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/eso/external-secret-jenkins-lab-ca.yaml
+      changed_when: true
+
+    - name: Wait for lab-ca Secret to materialize in jenkins ns
+      ansible.builtin.command:
+        cmd: kubectl -n jenkins wait externalsecret/lab-ca --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Apply ExternalSecret lab-ca (cert-manager → jenkins-build ns)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/eso/external-secret-jenkins-build-lab-ca.yaml
+      changed_when: true
+
+    - name: Wait for lab-ca Secret to materialize in jenkins-build ns
+      ansible.builtin.command:
+        cmd: kubectl -n jenkins-build wait externalsecret/lab-ca --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Wait for registry-pull Secret to materialize in jenkins-build ns
+      ansible.builtin.command:
+        cmd: kubectl -n jenkins-build wait externalsecret/registry-pull --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Recreate ConfigMap with Dockerfile + plugins.txt for the build Job
+      ansible.builtin.shell:
+        cmd: |
+          kubectl -n jenkins-build create configmap jenkins-image-context \
+            --from-file=Dockerfile={{ repo_root }}/docker/Dockerfile.jenkins \
+            --from-file=plugins.txt={{ repo_root }}/docker/plugins.txt \
+            --dry-run=client -o yaml | kubectl apply -f -
+      changed_when: true
+
+    - name: Apply Jenkins RBAC (SA jenkins in jenkins-build is required by the build Job below; deployer Roles in demo-* are required by the pipeline)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/jenkins/rbac-app-namespaces.yaml
+      changed_when: true
+
+    - name: Delete previous build-jenkins-image Job (Jobs are immutable)
+      ansible.builtin.command:
+        cmd: kubectl -n jenkins-build delete job build-jenkins-image --ignore-not-found
+      changed_when: false
+
+    - name: Render build-jenkins-image Job manifest
+      ansible.builtin.template:
+        src: ../templates/jenkins-image-build-job.yaml.j2
+        dest: /tmp/jenkins-image-build-job.yaml
+        mode: "0644"
+
+    - name: Apply build-jenkins-image Job
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/jenkins-image-build-job.yaml
+      changed_when: true
+
+    - name: Wait for build-jenkins-image Job completion
+      ansible.builtin.command:
+        cmd: kubectl -n jenkins-build wait --for=condition=complete job/build-jenkins-image --timeout=10m
+      changed_when: false
+
+    - name: Render Jenkins ExternalSecret
+      ansible.builtin.template:
+        src: ../templates/jenkins-external-secret.yaml.j2
+        dest: /tmp/jenkins-external-secret.yaml
+        mode: "0644"
+
+    - name: Apply Jenkins ExternalSecret
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/jenkins-external-secret.yaml
+      changed_when: true
+
+    - name: Wait for ExternalSecret to sync (creates jenkins-admin Secret)
+      ansible.builtin.command:
+        cmd: kubectl -n jenkins wait externalsecret/jenkins-admin --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: helm repo add jenkins
+      ansible.builtin.command:
+        cmd: helm repo add jenkins https://charts.jenkins.io
+      register: r
+      changed_when: "'already exists' not in r.stderr"
+      failed_when:
+        - r.rc != 0
+        - "'already exists' not in r.stderr"
+
+    - name: helm repo update
+      ansible.builtin.command: helm repo update
+      changed_when: false
+
+    - name: Render Jenkins helm values (substitutes ingress_base_domain)
+      ansible.builtin.template:
+        src: ../templates/jenkins-values.yaml.j2
+        dest: /tmp/jenkins-values.yaml
+        mode: "0644"
+
+    - name: Garbage-collect orphaned JCasC configScript ConfigMaps
+      ansible.builtin.shell:
+        cmd: |
+          kubectl -n jenkins get cm -o name 2>/dev/null \
+            | grep '^configmap/jenkins-jenkins-config-' \
+            | xargs -r kubectl -n jenkins delete --ignore-not-found
+        executable: /bin/bash
+      changed_when: true
+      failed_when: false
+
+    - block:
+        - name: Install Jenkins (admin credentials from K8s Secret jenkins-admin)
+          ansible.builtin.command:
+            cmd: >
+              helm upgrade --install jenkins jenkins/jenkins
+              --namespace jenkins --create-namespace
+              --version {{ jenkins_chart_version }}
+              -f /tmp/jenkins-values.yaml
+              --set controller.jenkinsUrl=https://jenkins.{{ ingress_base_domain }}/
+              --set controller.admin.existingSecret=jenkins-admin
+              --set controller.admin.userKey=jenkins-admin-user
+              --set controller.admin.passwordKey=jenkins-admin-password
+              --wait --timeout=10m
+          changed_when: true
+
+      rescue:
+        - name: Helm install failed — capture jenkins logs for the record
+          ansible.builtin.shell:
+            cmd: |
+              kubectl -n jenkins logs jenkins-0 -c jenkins --tail=200 > /tmp/jenkins-failure-{{ ansible_date_time.epoch | default(lookup('pipe', 'date +%s')) }}.log 2>&1 || true
+          changed_when: false
+          failed_when: false
+
+        - name: Wipe broken Jenkins release + PVC + ExternalSecret-backed Secret
+          ansible.builtin.shell:
+            cmd: |
+              set +e
+              helm uninstall jenkins -n jenkins --ignore-not-found --wait
+              kubectl -n jenkins delete pvc jenkins --ignore-not-found --wait --timeout=120s
+              kubectl -n jenkins delete pod jenkins-0 --ignore-not-found --grace-period=0 --force 2>/dev/null
+              exit 0
+          changed_when: true
+
+        - name: Re-wait for ExternalSecret to re-sync jenkins-admin Secret
+          ansible.builtin.command:
+            cmd: kubectl -n jenkins wait externalsecret/jenkins-admin --for=condition=Ready --timeout=2m
+          changed_when: false
+
+        - name: Install Jenkins (retry after wipe)
+          ansible.builtin.command:
+            cmd: >
+              helm upgrade --install jenkins jenkins/jenkins
+              --namespace jenkins --create-namespace
+              --version {{ jenkins_chart_version }}
+              -f /tmp/jenkins-values.yaml
+              --set controller.jenkinsUrl=https://jenkins.{{ ingress_base_domain }}/
+              --set controller.admin.existingSecret=jenkins-admin
+              --set controller.admin.userKey=jenkins-admin-user
+              --set controller.admin.passwordKey=jenkins-admin-password
+              --wait --timeout=10m
+          changed_when: true
+
+
+    - name: Render Jenkins Ingress
+      ansible.builtin.template:
+        src: ../templates/jenkins-ingress.yaml.j2
+        dest: /tmp/jenkins-ingress.yaml
+        mode: "0644"
+
+    - name: Apply Jenkins Ingress
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/jenkins-ingress.yaml
+      changed_when: true
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Jenkins URL:        https://jenkins.{{ ingress_base_domain }}/"
+          - "Admin user:         admin"
+          - "Admin password:     stored in Vault at secret/jenkins/admin (key: password)"
+          - "Read it from Vault: kubectl -n vault exec vault-0 -- env VAULT_TOKEN=$(cat {{ vault_init_file }} | jq -r .root_token) vault kv get -field=password secret/jenkins/admin"
+          - "Or from K8s secret: kubectl -n jenkins get secret jenkins-admin -o jsonpath='{.data.jenkins-admin-password}' | base64 -d"
+          - "Port-forward:       kubectl port-forward -n jenkins svc/jenkins 8080:8080"

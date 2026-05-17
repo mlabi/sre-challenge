@@ -1,0 +1,103 @@
+---
+
+- name: NetworkPolicies — default deny + explicit allows
+  hosts: localhost
+  gather_facts: false
+
+  environment:
+    KUBECONFIG: "{{ k3s_kubeconfig }}"
+
+  vars:
+    repo_root: "{{ playbook_dir }}/../../.."
+    baseline_namespaces:
+      - kafka
+      - postgres
+      - jenkins
+      - demo-front
+      - demo-back
+      - demo-reader
+      - vault
+      - external-secrets
+      - cert-manager
+      - kafka-operator
+      - cnpg-system
+      - ingress-nginx
+
+  tasks:
+    - name: Render baseline NetworkPolicies (lab_lan_cidr from group_vars)
+      ansible.builtin.template:
+        src: "{{ repo_root }}/k8s/network-policies/00-baseline.yaml.j2"
+        dest: /tmp/np-baseline.yaml
+        mode: "0644"
+
+    - name: Apply baseline NetworkPolicies to each namespace
+      ansible.builtin.command:
+        cmd: kubectl apply -n {{ item }} -f /tmp/np-baseline.yaml
+      loop: "{{ baseline_namespaces }}"
+      changed_when: true
+
+    - name: Render templated per-namespace policies
+      ansible.builtin.template:
+        src: "{{ repo_root }}/k8s/network-policies/{{ item }}.j2"
+        dest: "/tmp/np-{{ item }}"
+        mode: "0644"
+      loop:
+        - external-secrets.yaml
+        - operators.yaml
+
+    - name: Apply templated per-namespace policies
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/np-{{ item }}
+      loop:
+        - external-secrets.yaml
+        - operators.yaml
+      changed_when: true
+
+    - name: Apply static per-namespace policies (no templating)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/network-policies/{{ item }}
+      loop:
+        - ingress-nginx.yaml
+        - vault.yaml
+        - kafka.yaml
+        - postgres.yaml
+        - jenkins.yaml
+      changed_when: true
+
+    - name: Delete obsolete NPs left over from agent-in-jenkins-ns layout
+      ansible.builtin.command:
+        cmd: kubectl -n jenkins delete networkpolicy {{ item }} --ignore-not-found
+      loop:
+        - allow-egress-agent-to-controller
+        - allow-egress-internet-build
+        - allow-egress-registry
+      changed_when: true
+
+    - name: Restart ESO controller to clear post-NP backoff
+      ansible.builtin.command:
+        cmd: kubectl -n external-secrets rollout restart deployment external-secrets
+      changed_when: true
+
+    - name: Wait for ESO controller rollout
+      ansible.builtin.command:
+        cmd: kubectl -n external-secrets rollout status deployment external-secrets --timeout=2m
+      changed_when: false
+
+    - name: Wait for ClusterSecretStore Ready (cross-ns ESO → Vault now allowed)
+      ansible.builtin.command:
+        cmd: kubectl wait clustersecretstore/vault-backend --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: List NetworkPolicies across all baseline namespaces
+      ansible.builtin.command:
+        cmd: kubectl get networkpolicy -n {{ item }}
+      loop: "{{ baseline_namespaces }}"
+      register: np_listing
+      changed_when: false
+
+    - name: Show NetworkPolicies summary
+      ansible.builtin.debug:
+        msg: "{{ item.stdout_lines }}"
+      loop: "{{ np_listing.results }}"
+      loop_control:
+        label: "{{ item.item }}"

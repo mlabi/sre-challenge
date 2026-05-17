@@ -1,0 +1,32 @@
+---
+ansible_user: labi
+ansible_ssh_private_key_file: "~/.ssh/labi_lab_ed25519"
+ansible_python_interpreter: /usr/bin/python3
+
+strimzi_version: "0.51.0"
+cnpg_version: "0.22.1"
+jenkins_chart_version: "5.9.19"
+jenkins_image_tag: "2.555.2"
+k3s_channel: "stable"
+cert_manager_version: "v1.17.1"
+vault_chart_version: "0.30.0"
+eso_chart_version: "0.10.7"
+
+vault_lab_dir: "{{ lookup('env', 'HOME') }}/.vault-lab"
+
+manifests_dir: "{{ playbook_dir }}/../../../k8s"
+
+k3s_kubeconfig: "{{ lookup('env', 'HOME') }}/.kube/k3s-config"
+
+ingress_base_domain: "192.168.10.51.nip.io"
+
+lab_lan_cidr: "192.168.10.0/24"
+
+registry_host: "registry.{{ ingress_base_domain }}"
+
+registry_internal_host: "registry.registry.svc.cluster.local"
+
+git_repo_url: "https://github.com/mlabi/sre-challenge.git"
+git_branch:   "k3s-on-prem"
+
+kafka_mode: kraft

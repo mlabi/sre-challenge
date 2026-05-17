@@ -1,0 +1,80 @@
+---
+
+- name: Wipe k3s agents (box-2, box-3)
+  hosts: k3s_agent
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Confirmation required
+      ansible.builtin.assert:
+        that:
+          - confirm | default('') == 'YES'
+        fail_msg: |
+          This playbook DESTROYS the entire k3s cluster.
+          Re-run with: ansible-playbook playbooks/99-wipe.yml -e confirm=YES
+
+    - name: Run k3s-agent-uninstall.sh
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-agent-uninstall.sh
+        removes: /usr/local/bin/k3s-agent-uninstall.sh
+      changed_when: true
+
+- name: Wipe k3s server (box-1)
+  hosts: k3s_server
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Run k3s-uninstall.sh
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-uninstall.sh
+        removes: /usr/local/bin/k3s-uninstall.sh
+      changed_when: true
+
+    - name: Drop our injected k3s config (--secrets-encryption)
+      ansible.builtin.file:
+        path: /etc/rancher/k3s/config.yaml
+        state: absent
+
+- name: Wipe controller artifacts
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    vault_init_file: "{{ vault_lab_dir }}/init.json"
+
+  tasks:
+    - name: Remove Vault init (root token + unseal key)
+      ansible.builtin.file:
+        path: "{{ vault_init_file }}"
+        state: absent
+
+    - name: Remove kubeconfig pointing at the dead cluster
+      ansible.builtin.file:
+        path: "{{ k3s_kubeconfig }}"
+        state: absent
+
+    - name: Remove extracted lab CA (cert-manager will issue a new one)
+      ansible.builtin.file:
+        path: /tmp/lab-ca.crt
+        state: absent
+
+    - name: Remove Ansible fact cache
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../.ansible_facts_cache"
+        state: absent
+
+    - name: Final note
+      ansible.builtin.debug:
+        msg:
+          - "Cluster wiped. All k3s state on box-1/2/3 is gone."
+          - "Controller artifacts removed: init.json, kubeconfig, lab-ca.crt, fact cache."
+          - ""
+          - "Manual cleanup the playbook can't do:"
+          - "  1. podman trust for the OLD lab-ca:"
+          - "     rm -rf ~/.config/containers/certs.d/{{ registry_host }}"
+          - "  2. macOS keychain entry for the OLD lab-ca:"
+          - "     sudo security delete-certificate -c sre-lab-ca /Library/Keychains/System.keychain || true"
+          - ""
+          - "Then run: make all"

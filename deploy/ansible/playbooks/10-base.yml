@@ -1,0 +1,105 @@
+---
+- name: Base OS configuration (Ubuntu, k3s nodes)
+  hosts: k3s_cluster
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: apt update + upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: safe
+        cache_valid_time: 3600
+
+    - name: Install common packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - ca-certificates
+          - gnupg
+          - jq
+          - python3
+          - python3-pip
+          - chrony
+          - unattended-upgrades
+        state: present
+
+    - name: Disable swap (k3s requirement)
+      ansible.builtin.shell: |
+        swapoff -a
+      changed_when: false
+
+    - name: Remove swap line from /etc/fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^([^#].*\sswap\s.*)$'
+        replace: '# \1'
+
+    - name: Ensure required kernel modules load at boot
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k3s.conf
+        content: |
+          br_netfilter
+          overlay
+        mode: "0644"
+
+    - name: Load modules now
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+
+    - name: Set sysctls for k8s networking
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/99-k3s.conf
+        sysctl_set: true
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward, value: "1" }
+        - { name: net.bridge.bridge-nf-call-iptables, value: "1" }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+        - { name: fs.inotify.max_user_instances, value: "8192" }
+        - { name: fs.inotify.max_user_watches, value: "524288" }
+
+    - name: Enable + start chrony
+      ansible.builtin.systemd:
+        name: chrony
+        enabled: true
+        state: started
+
+    - name: UFW — allow SSH
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: UFW — allow k3s API (server only)
+      community.general.ufw:
+        rule: allow
+        port: "6443"
+        proto: tcp
+      when: k3s_role == "server"
+
+    - name: UFW — allow kubelet (10250) within LAN
+      community.general.ufw:
+        rule: allow
+        port: "10250"
+        proto: tcp
+        from_ip: "{{ lab_lan_cidr }}"
+
+    - name: UFW — allow flannel VXLAN (8472/udp) within LAN
+      community.general.ufw:
+        rule: allow
+        port: "8472"
+        proto: udp
+        from_ip: "{{ lab_lan_cidr }}"
+
+    - name: UFW — enable, default deny incoming
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming

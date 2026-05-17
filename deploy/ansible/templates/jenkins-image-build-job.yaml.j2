@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: build-jenkins-image
+  namespace: jenkins-build
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: jenkins
+      restartPolicy: Never
+      initContainers:
+        - name: prepare-context
+          image: busybox:1.36
+          command: ['sh', '-c', 'cp /cm/Dockerfile /workspace/Dockerfile && cp /cm/plugins.txt /workspace/plugins.txt && ls -la /workspace']
+          volumeMounts:
+            - name: cm
+              mountPath: /cm
+            - name: context
+              mountPath: /workspace
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:v1.23.2-debug
+          args:
+            - --context=/workspace
+            - --dockerfile=Dockerfile
+            - --destination={{ registry_internal_host }}/jenkins:{{ jenkins_image_tag }}
+            - --cache=true
+            - --cache-repo={{ registry_internal_host }}/kaniko-cache
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+          volumeMounts:
+            - name: context
+              mountPath: /workspace
+            - name: dockerconfig
+              mountPath: /kaniko/.docker
+            - name: lab-ca
+              mountPath: /kaniko/ssl/certs/sre-lab-ca.crt
+              subPath: ca.crt
+      volumes:
+        - name: cm
+          configMap:
+            name: jenkins-image-context
+        - name: context
+          emptyDir: {}
+        - name: dockerconfig
+          secret:
+            secretName: registry-pull
+            items:
+              - key: .dockerconfigjson
+                path: config.json
+        - name: lab-ca
+          secret:
+            secretName: lab-ca
+            items:
+              - key: ca.crt
+                path: ca.crt

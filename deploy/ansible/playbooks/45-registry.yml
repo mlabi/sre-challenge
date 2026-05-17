@@ -1,0 +1,163 @@
+---
+
+- name: Internal image registry
+  hosts: localhost
+  gather_facts: false
+
+  environment:
+    KUBECONFIG: "{{ k3s_kubeconfig }}"
+
+  vars:
+    repo_root: "{{ playbook_dir }}/../../.."
+    vault_namespace: vault
+    vault_init_file: "{{ vault_lab_dir }}/init.json"
+
+  tasks:
+    - name: Apply namespace (PSS restricted labels)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/registry/namespace.yaml
+      changed_when: true
+
+    - name: Render Certificate manifest (registry_host from group_vars)
+      ansible.builtin.template:
+        src: "{{ repo_root }}/k8s/registry/certificate.yaml.j2"
+        dest: /tmp/registry-certificate.yaml
+        mode: "0644"
+
+    - name: Apply Certificate (cert-manager → registry-tls Secret)
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/registry-certificate.yaml
+      changed_when: true
+
+    - name: Wait for registry TLS cert Ready
+      ansible.builtin.command:
+        cmd: kubectl -n registry wait certificate/registry-tls --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Load Vault root token
+      ansible.builtin.set_fact:
+        vault_root_token: "{{ (lookup('file', vault_init_file) | from_json).root_token }}"
+      no_log: true
+
+    - name: Check whether registry admin secret exists in Vault
+      ansible.builtin.command:
+        cmd: kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }} vault kv get -format=json secret/registry/admin
+      register: reg_kv_check
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Generate random registry admin password
+      ansible.builtin.set_fact:
+        reg_new_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+      when: reg_kv_check.rc != 0
+      no_log: true
+
+    - name: Compute bcrypt htpasswd entry for the new password
+      ansible.builtin.command:
+        cmd: htpasswd -Bbn admin "{{ reg_new_password }}"
+      register: reg_htpasswd
+      changed_when: false
+      when: reg_kv_check.rc != 0
+      no_log: true
+
+    - name: Write registry admin credentials to Vault
+      ansible.builtin.command:
+        cmd: >
+          kubectl -n {{ vault_namespace }} exec vault-0 --
+          env VAULT_TOKEN={{ vault_root_token }}
+          vault kv put secret/registry/admin
+          username=admin
+          password={{ reg_new_password }}
+          htpasswd={{ reg_htpasswd.stdout }}
+      when: reg_kv_check.rc != 0
+      changed_when: true
+      no_log: true
+
+    - name: Render ExternalSecret manifest
+      ansible.builtin.template:
+        src: ../templates/registry-external-secret.yaml.j2
+        dest: /tmp/registry-external-secret.yaml
+        mode: "0644"
+
+    - name: Apply ExternalSecret
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/registry-external-secret.yaml
+      changed_when: true
+
+    - name: Wait for ExternalSecret to materialize registry-htpasswd Secret
+      ansible.builtin.command:
+        cmd: kubectl -n registry wait externalsecret/registry-htpasswd --for=condition=Ready --timeout=2m
+      changed_when: false
+
+    - name: Apply PVC
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/registry/pvc.yaml
+      changed_when: true
+
+    - name: Apply ConfigMap (registry config.yml)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/registry/config.yaml
+      changed_when: true
+
+    - name: Apply Service
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/registry/service.yaml
+      changed_when: true
+
+    - name: Apply Deployment
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/registry/deployment.yaml
+      changed_when: true
+
+    - name: Render Ingress manifest
+      ansible.builtin.template:
+        src: "{{ repo_root }}/k8s/registry/ingress.yaml.j2"
+        dest: /tmp/registry-ingress.yaml
+        mode: "0644"
+
+    - name: Apply Ingress
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/registry-ingress.yaml
+      changed_when: true
+
+    - name: Render baseline NetworkPolicies
+      ansible.builtin.template:
+        src: "{{ repo_root }}/k8s/network-policies/00-baseline.yaml.j2"
+        dest: /tmp/np-baseline.yaml
+        mode: "0644"
+
+    - name: Apply baseline NetworkPolicies to registry ns
+      ansible.builtin.command:
+        cmd: kubectl apply -n registry -f /tmp/np-baseline.yaml
+      changed_when: true
+
+    - name: Render registry-specific NetworkPolicy
+      ansible.builtin.template:
+        src: "{{ repo_root }}/k8s/network-policies/registry.yaml.j2"
+        dest: /tmp/np-registry.yaml
+        mode: "0644"
+
+    - name: Apply registry-specific NetworkPolicies
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/np-registry.yaml
+      changed_when: true
+
+    - name: Wait for registry Deployment Ready
+      ansible.builtin.command:
+        cmd: kubectl -n registry rollout status deployment/registry --timeout=3m
+      changed_when: false
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Registry URL:    https://{{ registry_host }}"
+          - "Service (in-cluster): registry.registry.svc.cluster.local:443"
+          - "Admin user:      admin"
+          - "Admin password:  Vault path secret/registry/admin (key: password)"
+          - ""
+          - "Test from controller (after trusting lab-ca for podman):"
+          - "  mkdir -p ~/.config/containers/certs.d/{{ registry_host }}"
+          - "  cp /tmp/lab-ca.crt ~/.config/containers/certs.d/{{ registry_host }}/ca.crt"
+          - "  podman login -u admin {{ registry_host }}"
+          - "  (password from: jq -r .root_token ~/.vault-lab/init.json then vault kv get -field=password secret/registry/admin)"

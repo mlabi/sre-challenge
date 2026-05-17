@@ -1,0 +1,57 @@
+---
+
+- name: Trust lab CA on k3s nodes
+  hosts: k3s_cluster
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Read lab CA cert from controller
+      ansible.builtin.set_fact:
+        lab_ca_content: "{{ lookup('file', '/tmp/lab-ca.crt') }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Copy lab CA into system anchor dir (Debian/Ubuntu)
+      ansible.builtin.copy:
+        content: "{{ lab_ca_content }}"
+        dest: /usr/local/share/ca-certificates/sre-lab-ca.crt
+        owner: root
+        group: root
+        mode: "0644"
+      register: ca_copy
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Refresh CA bundle
+      ansible.builtin.command: update-ca-certificates
+      when:
+        - ansible_facts.os_family == "Debian"
+        - ca_copy.changed
+      changed_when: true
+
+    - name: Restart k3s server (so containerd reloads system trust)
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+      when:
+        - ca_copy.changed
+        - inventory_hostname in groups['k3s_server']
+
+    - name: Restart k3s-agent (workers)
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: restarted
+      when:
+        - ca_copy.changed
+        - inventory_hostname in groups['k3s_agent']
+
+    - name: Wait for API to be reachable again after k3s restart
+      ansible.builtin.wait_for:
+        port: 6443
+        host: "{{ hostvars[groups['k3s_server'][0]].ansible_host }}"
+        timeout: 120
+      delegate_to: localhost
+      become: false
+      run_once: true
+      when: ca_copy.changed

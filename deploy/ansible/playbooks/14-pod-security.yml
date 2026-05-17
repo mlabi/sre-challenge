@@ -1,0 +1,50 @@
+---
+
+- name: PodSecurityStandards enforcement
+  hosts: localhost
+  gather_facts: false
+
+  environment:
+    KUBECONFIG: "{{ k3s_kubeconfig }}"
+
+  vars:
+    repo_root: "{{ playbook_dir }}/../../.."
+
+  tasks:
+    - name: Apply PSS labels to app/data namespaces (k8s/namespaces.yaml)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/namespaces.yaml
+      changed_when: true
+
+    - name: Apply PSS labels to operator namespaces (k8s/pod-security/labels.yaml)
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ repo_root }}/k8s/pod-security/labels.yaml
+      changed_when: true
+
+    - name: Verify PSS enforce label on each managed namespace
+      ansible.builtin.command:
+        cmd: >
+          kubectl get namespace {{ item }}
+          -o jsonpath={.metadata.labels.pod-security\.kubernetes\.io/enforce}
+      register: pss
+      changed_when: false
+      loop:
+        - kafka
+        - postgres
+        - jenkins
+        - demo-front
+        - demo-back
+        - demo-reader
+        - ingress-nginx
+        - cnpg-system
+        - kafka-operator
+        - cert-manager
+        - external-secrets
+        - vault
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: "{{ item.item }}: enforce={{ item.stdout }}"
+      loop: "{{ pss.results }}"
+      loop_control:
+        label: "{{ item.item }}"
