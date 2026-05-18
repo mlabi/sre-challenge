@@ -192,3 +192,31 @@ lint: ## Quick sanity: bash syntax + ansible playbook syntax check
 .PHONY: clean-artifacts
 clean-artifacts: ## Remove bootstrap-generated artifacts (USB images)
 	rm -rf $(ANSIBLE_DIR)/bootstrap/ubuntu/dist
+
+.PHONY: trivy-report
+trivy-report: ## Run trivy config + write a markdown report under doc/reports/
+	@command -v trivy >/dev/null || { echo "trivy not installed (brew install trivy)"; exit 1; }
+	@command -v jq    >/dev/null || { echo "jq not installed";    exit 1; }
+	@mkdir -p doc/reports
+	@DATE=$$(date +%Y-%m-%d); OUT=doc/reports/trivy-$$DATE.md; \
+	  TMP=$$(mktemp); trivy config --severity HIGH,CRITICAL --format json . > $$TMP 2>/dev/null; \
+	  { \
+	    echo "# Trivy report — $$DATE"; \
+	    echo; \
+	    echo "**Scanner:** $$(trivy --version | head -1)"; \
+	    echo "**Repo:** $$(git rev-parse --abbrev-ref HEAD) @ $$(git rev-parse --short HEAD)"; \
+	    echo; \
+	    echo "## Summary (HIGH/CRITICAL only, grouped by rule)"; \
+	    echo; \
+	    echo '| Severity | Rule | Count | Title |'; \
+	    echo '|---|---|---|---|'; \
+	    jq -r '[.Results[]? | .Misconfigurations[]? | {sev: .Severity, id: .ID, title: .Title}] | group_by(.id) | map({id: .[0].id, sev: .[0].sev, title: .[0].title, count: length}) | sort_by(-.count) | .[] | "| \(.sev) | \(.id) | \(.count) | \(.title) |"' $$TMP; \
+	    echo; \
+	    echo "## Details"; \
+	    echo; \
+	    echo '```'; \
+	    trivy config --severity HIGH,CRITICAL . 2>/dev/null; \
+	    echo '```'; \
+	  } > $$OUT; \
+	  rm -f $$TMP; \
+	  echo "Wrote $$OUT"

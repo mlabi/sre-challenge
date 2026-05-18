@@ -5,6 +5,9 @@ metadata:
   name: jenkins
   namespace: jenkins-build
 ---
+# Build-agent spawner: the controller SA reconciles transient kaniko/gradle
+# pods in jenkins-build. exec/log/portforward are needed by the kubernetes
+# plugin for log streaming and live debug into agent containers.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -12,11 +15,17 @@ metadata:
   namespace: jenkins-build
 rules:
   - apiGroups: [""]
-    resources: ["pods","pods/log","pods/exec","pods/portforward"]
-    verbs: ["*"]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
-    resources: ["secrets","configmaps","serviceaccounts","events"]
-    verbs: ["get","list","watch","create","update","patch"]
+    resources: ["pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/portforward"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "serviceaccounts", "events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -32,6 +41,9 @@ roleRef:
   name: build-agent-spawner
   apiGroup: rbac.authorization.k8s.io
 ---
+# Deployer: bound to the build-pod SA so 'helm upgrade --install' from the
+# pipeline can reconcile every object our chart renders. Verbs are the
+# explicit set helm actually uses — no wildcards, no bind/escalate.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -39,23 +51,30 @@ metadata:
   namespace: demo-front
 rules:
   - apiGroups: [""]
-    resources: ["pods","services","configmaps","secrets","serviceaccounts","persistentvolumeclaims","events"]
-    verbs: ["*"]
+    resources:
+      - pods
+      - services
+      - configmaps
+      - secrets
+      - serviceaccounts
+      - persistentvolumeclaims
+      - events
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
-    resources: ["deployments","replicasets","statefulsets"]
-    verbs: ["*"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses","networkpolicies"]
-    verbs: ["*"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
-    verbs: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
-    verbs: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["external-secrets.io"]
     resources: ["externalsecrets"]
-    verbs: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -74,6 +93,9 @@ roleRef:
   name: deployer
   apiGroup: rbac.authorization.k8s.io
 ---
+# Deployer: bound to the build-pod SA so 'helm upgrade --install' from the
+# pipeline can reconcile every object our chart renders. Verbs are the
+# explicit set helm actually uses — no wildcards, no bind/escalate.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -81,23 +103,30 @@ metadata:
   namespace: demo-back
 rules:
   - apiGroups: [""]
-    resources: ["pods","services","configmaps","secrets","serviceaccounts","persistentvolumeclaims","events"]
-    verbs: ["*"]
+    resources:
+      - pods
+      - services
+      - configmaps
+      - secrets
+      - serviceaccounts
+      - persistentvolumeclaims
+      - events
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
-    resources: ["deployments","replicasets","statefulsets"]
-    verbs: ["*"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses","networkpolicies"]
-    verbs: ["*"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
-    verbs: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
-    verbs: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["external-secrets.io"]
     resources: ["externalsecrets"]
-    verbs: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -116,6 +145,9 @@ roleRef:
   name: deployer
   apiGroup: rbac.authorization.k8s.io
 ---
+# Deployer: bound to the build-pod SA so 'helm upgrade --install' from the
+# pipeline can reconcile every object our chart renders. Verbs are the
+# explicit set helm actually uses — no wildcards, no bind/escalate.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -123,23 +155,30 @@ metadata:
   namespace: demo-reader
 rules:
   - apiGroups: [""]
-    resources: ["pods","services","configmaps","secrets","serviceaccounts","persistentvolumeclaims","events"]
-    verbs: ["*"]
+    resources:
+      - pods
+      - services
+      - configmaps
+      - secrets
+      - serviceaccounts
+      - persistentvolumeclaims
+      - events
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
-    resources: ["deployments","replicasets","statefulsets"]
-    verbs: ["*"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses","networkpolicies"]
-    verbs: ["*"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
-    verbs: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
-    verbs: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["external-secrets.io"]
     resources: ["externalsecrets"]
-    verbs: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

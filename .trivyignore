@@ -1,0 +1,14 @@
+# trivy config ignores. Each entry must come with a one-line reason.
+# Format: <rule-id>  # why
+
+# Jenkins controller SA needs pods/exec on its build namespace so the
+# kubernetes plugin can stream agent logs and run inline 'sh' steps.
+# Scoped to jenkins-build only — not cluster-wide.
+KSV-0053
+
+# The 'deployer' Role bound to the Jenkins build pod must be able to
+# manage Services, Ingresses and NetworkPolicies inside each demo-*
+# namespace — that is exactly what `helm upgrade --install` reconciles
+# for our app chart. The Role is namespace-scoped (not ClusterRole), so
+# the blast radius is the single workload's namespace.
+KSV-0056
