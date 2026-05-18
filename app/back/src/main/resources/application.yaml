@@ -16,7 +16,6 @@ spring:
 
   jpa.hibernate.ddl-auto: update
 
-# Actuator settings ##################################################
 management:
   info.git.mode: full
   server:

@@ -65,10 +65,10 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: jenkins
-    namespace: jenkins         # controller-side (legacy: make jenkins-triggered deploys)
+    namespace: jenkins         # controller, for legacy make-triggered deploys
   - kind: ServiceAccount
     name: jenkins
-    namespace: jenkins-build   # Sprint 4f: helm install from build pod
+    namespace: jenkins-build   # build pod runs helm
 roleRef:
   kind: Role
   name: deployer
@@ -107,10 +107,10 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: jenkins
-    namespace: jenkins         # controller-side (legacy: make jenkins-triggered deploys)
+    namespace: jenkins         # controller, for legacy make-triggered deploys
   - kind: ServiceAccount
     name: jenkins
-    namespace: jenkins-build   # Sprint 4f: helm install from build pod
+    namespace: jenkins-build   # build pod runs helm
 roleRef:
   kind: Role
   name: deployer
@@ -149,10 +149,10 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: jenkins
-    namespace: jenkins         # controller-side (legacy: make jenkins-triggered deploys)
+    namespace: jenkins         # controller, for legacy make-triggered deploys
   - kind: ServiceAccount
     name: jenkins
-    namespace: jenkins-build   # Sprint 4f: helm install from build pod
+    namespace: jenkins-build   # build pod runs helm
 roleRef:
   kind: Role
   name: deployer

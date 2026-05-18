@@ -8,7 +8,6 @@ spring:
 
   jpa.hibernate.ddl-auto: validate
 
-# Actuator settings ##################################################
 management:
   info.git.mode: full
   server:

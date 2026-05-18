@@ -11,9 +11,8 @@ metadata:
     jenkins/label: kaniko
 spec:
   serviceAccountName: jenkins
-  # Pod runs in jenkins-build ns (PSS baseline). No pod-level runAsNonRoot
-  # — kaniko needs root to unpack base layers. Per-container securityContext
-  # below pins everything else (jnlp/gradle/tools) to UID 1000.
+  # kaniko needs root to unpack base layers, so no pod-level runAsNonRoot.
+  # Other containers pin to UID 1000 individually.
   containers:
     - name: jnlp
       image: jenkins/inbound-agent:latest-jdk21

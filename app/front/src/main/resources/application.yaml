@@ -7,7 +7,6 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
-# Actuator settings ##################################################
 management:
   info.git.mode: full
   server:

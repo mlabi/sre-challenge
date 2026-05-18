@@ -1,0 +1,136 @@
+# LimitRange + ResourceQuota per managed namespace.
+#
+# LimitRange: any container missing requests/limits gets sensible defaults
+# applied, plus a hard max so nothing can ask for more than a single
+# ThinkCentre node can give. Workloads that already declare resources
+# in their chart keep what they declared.
+#
+# ResourceQuota: hard cap only on demo-* tenants. Kafka, Postgres, Jenkins
+# and platform components have large but known footprints declared in
+# their own manifests — we don't want a quota that surprise-rejects them.
+
+# ─── Demo apps (front / back / reader) ──────────────────────────────────
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: demo-front
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: 500m, memory: 512Mi }
+      defaultRequest: { cpu: 100m, memory: 128Mi }
+      max:            { cpu: "2",  memory: 2Gi }
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: budget
+  namespace: demo-front
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 2Gi
+    limits.cpu: "4"
+    limits.memory: 4Gi
+    pods: "5"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: demo-back
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: 500m, memory: 512Mi }
+      defaultRequest: { cpu: 100m, memory: 128Mi }
+      max:            { cpu: "2",  memory: 2Gi }
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: budget
+  namespace: demo-back
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 2Gi
+    limits.cpu: "4"
+    limits.memory: 4Gi
+    pods: "5"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: demo-reader
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: 500m, memory: 512Mi }
+      defaultRequest: { cpu: 100m, memory: 128Mi }
+      max:            { cpu: "2",  memory: 2Gi }
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: budget
+  namespace: demo-reader
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 2Gi
+    limits.cpu: "4"
+    limits.memory: 4Gi
+    pods: "5"
+
+# ─── Data plane + Jenkins (LimitRange only, no hard quota) ──────────────
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: kafka
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "1",  memory: 1Gi }
+      defaultRequest: { cpu: 200m, memory: 256Mi }
+      max:            { cpu: "4",  memory: 4Gi }
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: postgres
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "1",  memory: 1Gi }
+      defaultRequest: { cpu: 200m, memory: 256Mi }
+      max:            { cpu: "4",  memory: 4Gi }
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: jenkins
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "1",  memory: 1Gi }
+      defaultRequest: { cpu: 200m, memory: 512Mi }
+      max:            { cpu: "4",  memory: 4Gi }
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: jenkins-build
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "1",  memory: 1Gi }
+      defaultRequest: { cpu: 200m, memory: 512Mi }
+      max:            { cpu: "4",  memory: 4Gi }

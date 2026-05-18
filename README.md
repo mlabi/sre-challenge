@@ -117,6 +117,7 @@ rest out (control-plane IP, ingress hostname, NetworkPolicy CIDRs are derived
 from the inventory, not hard-coded).
 
 In addition to Kafka and Postgres I run:
+
 - **HashiCorp Vault** as the single source of truth for credentials
   (Jenkins admin, Postgres app user, internal registry htpasswd). Workloads
   never touch Vault directly — External Secrets Operator materializes
@@ -149,8 +150,8 @@ make smoke
 `group_vars/all.yml`. Override per call if needed:
 
 ```bash
-FRONT_URL=https://front.192.168.10.151.nip.io \
-READER_URL=https://reader.192.168.10.151.nip.io \
+FRONT_URL=https://front.192.168.10.51.nip.io \
+READER_URL=https://reader.192.168.10.51.nip.io \
   make smoke
 ```
 

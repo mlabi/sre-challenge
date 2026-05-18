@@ -1,10 +1,8 @@
 ANSIBLE_DIR := deploy/ansible
 PLAYBOOK    := cd $(ANSIBLE_DIR) && ansible-playbook
 
-# Resolve the control-plane node IP from inventory the same way Ansible does
-# (so it works with any host name and any group_vars Jinja expression).
-# Picks the first host in the k3s_server group and reads its ansible_host.
-# Lazy `?=` so the shell only runs when a target actually expands the var.
+# First k3s_server host's ansible_host wins. ?= so the shell only runs
+# when a target actually needs the var.
 INGRESS_BASE_DOMAIN ?= $(shell cd $(ANSIBLE_DIR) && ansible-inventory --list 2>/dev/null | jq -r '.k3s_server.hosts[0] as $$h | ._meta.hostvars[$$h].ansible_host').nip.io
 REGISTRY_HOST       ?= registry.$(INGRESS_BASE_DOMAIN)
 JENKINS_HOST        ?= jenkins.$(INGRESS_BASE_DOMAIN)
