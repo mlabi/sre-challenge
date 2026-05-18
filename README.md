@@ -106,3 +106,110 @@ spring:
 
 management.server.port: 8081
 ```
+
+---
+
+## Deploying to GKE (this implementation)
+
+Standalone GKE deploy with Workload Identity, Cloud KMS for etcd + Secret
+Manager CMEK, Strimzi Kafka (KRaft), CloudNativePG, ESO for secret sync,
+cert-manager + Let's Encrypt, and Jenkins running the build pipeline. The
+Terraform state lives in a versioned GCS bucket; KMS resources are
+re-imported automatically across destroy/apply cycles.
+
+### Prerequisites (once per workstation)
+
+```bash
+brew install terraform kubectl helm jq google-cloud-sdk
+gcloud components install gke-gcloud-auth-plugin
+gcloud auth login                            # interactive
+gcloud auth application-default login        # ADC for Terraform
+```
+
+### 1. Bootstrap a fresh GCP project (skip if reusing one)
+
+Creates the project, links billing, enables APIs, provisions the GCS state
+bucket (versioned, with native locking), and writes
+`deploy/terraform/backend.hcl`.
+
+```bash
+./deploy/bootstrap-gcp/00-create-project.sh
+```
+
+### 2. Fill in `deploy/terraform/terraform.tfvars` (gitignored)
+
+```hcl
+project_id = "your-project-id-from-step-1"
+region     = "europe-central2"
+zone       = "europe-central2-a"
+```
+
+### 3. Provision infrastructure
+
+```bash
+make tf-init        # once, after backend.hcl exists
+make tf-apply       # VPC + KMS + GKE + Artifact Registry + IAM (~12 min first run)
+```
+
+`tf-apply` runs `deploy/terraform/import-existing.sh` first, which
+re-imports the KMS keyring and crypto keys if they survived a previous
+`tf-destroy` (Cloud KMS resources are immutable in GCP and never truly
+deleted), and restores any crypto-key versions left in
+`DESTROY_SCHEDULED` back to `ENABLED`. The next apply then completes
+cleanly instead of 409-ing on the keyring.
+
+### 4. Fetch the kubeconfig
+
+```bash
+make kubeconfig     # writes ~/.kube/gke-config
+```
+
+### 5. Bootstrap the cluster layer
+
+cert-manager + Let's Encrypt ClusterIssuer, ingress-nginx, ESO with the
+GCP Secret Manager provider, Strimzi + CNPG operators with their Kafka /
+Postgres clusters, NetworkPolicies for every managed namespace, Jenkins
+(pre-baked image via Cloud Build, JCasC seed), and the app-level
+ExternalSecrets.
+
+```bash
+ACME_EMAIL=you@yourdomain.tld make bootstrap
+# If ACME_EMAIL is unset, 01-cert-manager.sh prompts for it interactively.
+```
+
+### 6. Build, push, deploy, smoke
+
+```bash
+make ci-deploy      # triggers the Jenkins pipeline and waits for the result
+```
+
+The pipeline runs `gradle build` → kaniko push to Artifact Registry →
+`helm upgrade --install` for each of the three apps → in-cluster smoke
+(`POST` to front, then `GET` from reader and assert the message landed).
+
+### One-shot bring-up
+
+```bash
+ACME_EMAIL=you@yourdomain.tld make all   # = tf-apply + kubeconfig + bootstrap
+make ci-deploy
+```
+
+### Useful sub-targets
+
+```bash
+make status         # nodes, pods per namespace, certificates, ingress IP
+make creds          # Jenkins URL + admin password
+make smoke          # run the smoke test from the workstation
+make tf-output      # all Terraform outputs (project_id, registry URL, etc.)
+```
+
+### Tearing down
+
+```bash
+make tf-destroy     # infra only — KMS keyring + Secret Manager entries are retained
+make destroy        # helm uninstall everything first, then tf-destroy
+```
+
+The next `make tf-apply` re-imports the leftover KMS resources via
+`import-existing.sh`, so destroy → apply round-trips without manual
+state surgery.
