@@ -1,0 +1,35 @@
+# kube-linter config. Run: `kube-linter lint --config .kube-linter.yaml k8s/ charts/app/`
+checks:
+  addAllBuiltIn: true
+  exclude:
+    # --- Cosmetic / out of scope -----------------------------------------
+    - sorted-keys                  # alphabetical ordering of YAML keys is purely stylistic
+    - required-annotation-email    # custom annotation not used in this repo
+    - required-label-owner         # custom label not used in this repo
+    - use-namespace                # every object explicitly sets namespace via helm/file
+
+    # --- Intentional design decisions ------------------------------------
+    - minimum-three-replicas       # demo runs single-replica services to fit a tiny zonal cluster
+    - no-node-affinity             # single-zone GKE — node affinity adds no value
+    - no-rolling-update-strategy   # default RollingUpdate is correct for these stateless apps
+
+    # --- Known false positives -------------------------------------------
+    # Per-app NetworkPolicies (back-egress-postgres etc.) are rendered by
+    # Helm and bind via podSelectors. Static lint can't see the matching
+    # pods because they live in a different chart manifest.
+    - dangling-networkpolicy
+    - dangling-networkpolicypeer-podselector
+
+    # Jenkins build-pod SA needs these to run the pipeline. Scoped to a
+    # single namespace (jenkins-build) and reviewed in
+    # k8s/jenkins/rbac-app-namespaces.yaml.
+    - access-to-secrets
+    - access-to-create-pods
+
+    # 'kube-linter lint charts/app/' renders the chart with default values.
+    # The real deploys overlay values-front/back/reader.yaml which add the
+    # per-app NetworkPolicies and a real restartPolicy. The defaults are
+    # only meaningful as a smoke template.
+    - non-isolated-pod
+    - restart-policy
+    - dnsconfig-options

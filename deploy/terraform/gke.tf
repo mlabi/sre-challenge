@@ -124,6 +124,14 @@ resource "google_container_node_pool" "main" {
       "https://www.googleapis.com/auth/cloud-platform",
     ]
 
+    # Block the legacy GCE metadata v0.1/v1beta1 endpoints. They expose data
+    # without the Metadata-Flavor header required by v1, so a workload that
+    # can hit the link-local IP could read instance attributes without going
+    # through gke-metadata-server (the Workload Identity gate).
+    metadata = {
+      disable-legacy-endpoints = "true"
+    }
+
     workload_metadata_config {
       mode = "GKE_METADATA" # required for Workload Identity from pods
     }

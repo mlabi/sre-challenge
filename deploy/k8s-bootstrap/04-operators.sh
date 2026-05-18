@@ -5,6 +5,7 @@ STRIMZI_VERSION="${STRIMZI_VERSION:-0.51.0}"
 CNPG_VERSION="${CNPG_VERSION:-0.22.1}"
 
 kubectl apply -f k8s/namespaces.yaml
+kubectl apply -f k8s/quotas.yaml
 
 # Baseline NetworkPolicy (default-deny + DNS + k8s API egress + GKE metadata
 # server egress for Workload Identity) per managed ns. Without these, helm-
