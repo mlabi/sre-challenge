@@ -2,7 +2,7 @@
 set -euo pipefail
 
 STRIMZI_VERSION="${STRIMZI_VERSION:-0.51.0}"
-CNPG_VERSION="${CNPG_VERSION:-0.22.1}"
+CNPG_VERSION="${CNPG_VERSION:-0.28.2}"
 
 kubectl apply -f k8s/namespaces.yaml
 kubectl apply -f k8s/quotas.yaml
