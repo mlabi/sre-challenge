@@ -20,9 +20,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get", "list", "watch"]
+  # Kubernetes plugin opens a WebSocket on every `sh` step — that path
+  # needs get + create + delete on pods/exec, not just create.
   - apiGroups: [""]
     resources: ["pods/exec", "pods/portforward"]
-    verbs: ["create"]
+    verbs: ["get", "list", "create", "delete"]
   - apiGroups: [""]
     resources: ["secrets", "configmaps", "serviceaccounts", "events"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
