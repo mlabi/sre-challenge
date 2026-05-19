@@ -87,3 +87,23 @@ spec:
           port: 80
         - protocol: TCP
           port: 988
+---
+# cert-manager spins up an ephemeral cm-acme-http-solver pod in the same
+# namespace as the Certificate. ingress-nginx then routes the LE HTTP-01
+# challenge to it. Without this rule the per-namespace default-deny
+# leaves the solver unreachable and every cert stays pending.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-acme-solver
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx

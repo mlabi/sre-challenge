@@ -30,5 +30,7 @@ deploy/terraform/crash.*.log
 **/.vault-lab/
 **/pull-secret.json
 
-# Claude Code
-.claude/
+# Ansible runtime
+deploy/ansible/.ansible_facts_cache/
+deploy/ansible/**/*.retry
+deploy/ansible/bootstrap/ubuntu/dist/

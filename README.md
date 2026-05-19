@@ -164,6 +164,16 @@ cleanly instead of 409-ing on the keyring.
 make kubeconfig     # writes ~/.kube/gke-config
 ```
 
+The kubeconfig lands in a dedicated file (not your default
+`~/.kube/config`), so every Make target in this repo already exports
+`KUBECONFIG=~/.kube/gke-config` for you. For ad-hoc `kubectl` /
+`helm` calls in the same shell:
+
+```bash
+export KUBECONFIG=~/.kube/gke-config
+kubectl get nodes
+```
+
 ### 5. Bootstrap the cluster layer
 
 cert-manager + Let's Encrypt ClusterIssuer, ingress-nginx, ESO with the
@@ -179,19 +189,30 @@ ACME_EMAIL=you@yourdomain.tld make bootstrap
 
 ### 6. Build, push, deploy, smoke
 
+`make bootstrap` seeds the Jenkins job and the **first build kicks off
+automatically** as soon as the controller is up — `gradle build` →
+kaniko push to Artifact Registry → `helm upgrade --install` for each
+of the three apps → in-cluster smoke (`POST` to front, then `GET` from
+reader and assert the message landed).
+
+```bash
+make creds          # Jenkins admin URL + password (paste into a browser)
+```
+
+If for some reason the auto-trigger doesn't fire (controller still
+warming up, plugin install retried, …) start it by hand:
+
 ```bash
 make ci-deploy      # triggers the Jenkins pipeline and waits for the result
 ```
-
-The pipeline runs `gradle build` → kaniko push to Artifact Registry →
-`helm upgrade --install` for each of the three apps → in-cluster smoke
-(`POST` to front, then `GET` from reader and assert the message landed).
 
 ### One-shot bring-up
 
 ```bash
 ACME_EMAIL=you@yourdomain.tld make all   # = tf-apply + kubeconfig + bootstrap
-make ci-deploy
+make creds                               # Jenkins URL + admin password
+# first build auto-triggers; if not, fall back to:
+make ci-deploy                           # trigger the pipeline manually
 ```
 
 ### Useful sub-targets
