@@ -207,18 +207,18 @@ flowchart TB
 
 ### Why these components
 
-| Pick | Why, in one sentence |
-|---|---|
-| **k3s on bare-metal Ubuntu** | A real multi-node cluster on the lab boxes — Minikube/k3d would hide the bring-up work (networking, ingress IP, LoadBalancer vs NodePort) the challenge actually rewards. |
-| **Ansible** for bring-up | Idempotent `make all`, single inventory driving every IP / hostname / NetworkPolicy CIDR. Works on 1 node or 5 without code changes. |
-| **Strimzi** for Kafka | Kafka as CRDs (`Kafka`, `KafkaUser`, `KafkaTopic`) with mTLS + ACLs out of the box and KRaft mode — no ZooKeeper, no manual user/topic management. |
-| **CloudNativePG** for Postgres | Same operator pattern as Strimzi: one `Cluster` CR, bootstrap secrets, backups, PDB. Hand-rolled StatefulSets aren't worth the maintenance. |
-| **Vault + ESO** | Apps never read Vault directly — ESO materialises `Secret` objects in each namespace from Vault KV. One place to rotate creds, no secrets in git. |
-| **Jenkins + kaniko** | Pipeline runs in-cluster (no external runner needs to reach the lab). Kaniko builds images without a Docker daemon, so the build pod stays unprivileged. |
-| **cert-manager + lab CA** | A single `ClusterIssuer` signs every internal cert (ingress, registry, Jenkins). The CA is pushed into each node's trust store so kaniko pulls/pushes without `--insecure-registry`. |
-| **Default-deny NetworkPolicies + PSS** | Every namespace starts denied and opens only the paths it actually needs. Restricted PSS in app namespaces, baseline in `jenkins-build` (kaniko needs root to unpack layers). |
-| **`*.IP.nip.io` ingress** | No real DNS in the lab — `front.192.168.10.51.nip.io` resolves on its own. One inventory variable drives every hostname. |
-| **LimitRange + ResourceQuota** | Any new pod missing requests/limits gets sensible defaults and a hard max; demo tenants get a per-namespace budget so a runaway build can't take the node down. |
+| Pick                                         | Why, in one sentence                                                                                                                                                                     |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **k3s on bare-metal Ubuntu**           | A real multi-node cluster on the lab boxes — Minikube/k3d would hide the bring-up work (networking, ingress IP, LoadBalancer vs NodePort) the challenge actually rewards.               |
+| **Ansible** for bring-up               | Idempotent `make all`, single inventory driving every IP / hostname / NetworkPolicy CIDR. Works on 1 node or 5 without code changes.                                                   |
+| **Strimzi** for Kafka                  | Kafka as CRDs (`Kafka`, `KafkaUser`, `KafkaTopic`) with mTLS + ACLs out of the box and KRaft mode — no ZooKeeper, no manual user/topic management.                                |
+| **CloudNativePG** for Postgres         | Same operator pattern as Strimzi: one `Cluster` CR, bootstrap secrets, backups, PDB. Hand-rolled StatefulSets aren't worth the maintenance.                                            |
+| **Vault + ESO**                        | Apps never read Vault directly — ESO materialises `Secret` objects in each namespace from Vault KV. One place to rotate creds, no secrets in git.                                     |
+| **Jenkins + kaniko**                   | Pipeline runs in-cluster (no external runner needs to reach the lab). Kaniko builds images without a Docker daemon, so the build pod stays unprivileged.                                 |
+| **cert-manager + lab CA**              | A single `ClusterIssuer` signs every internal cert (ingress, registry, Jenkins). The CA is pushed into each node's trust store so kaniko pulls/pushes without `--insecure-registry`. |
+| **Default-deny NetworkPolicies + PSS** | Every namespace starts denied and opens only the paths it actually needs. Restricted PSS in app namespaces, baseline in `jenkins-build` (kaniko needs root to unpack layers).          |
+| **`*.IP.nip.io` ingress**            | No real DNS in the lab —`front.192.168.10.51.nip.io` resolves on its own. One inventory variable drives every hostname.                                                               |
+| **LimitRange + ResourceQuota**         | Any new pod missing requests/limits gets sensible defaults and a hard max; demo tenants get a per-namespace budget so a runaway build can't take the node down.                          |
 
 ## Repository layout
 
@@ -271,7 +271,15 @@ from the inventory.
 ```bash
 make all                  # k3s + Vault + ESO + Kafka + Postgres + registry + Jenkins
 make creds                # Jenkins admin URL + password
-make ci-deploy            # trigger the pipeline: gradle → kaniko → helm → smoke
+```
+
+`make all` seeds the Jenkins job and the **first build kicks off
+automatically** as soon as the controller is up — gradle → kaniko →
+helm → smoke. If for some reason it doesn't (controller still warming
+up, plugin install retried, …) trigger it by hand:
+
+```bash
+make ci-deploy            # gradle → kaniko → helm → smoke
 ```
 
 The pipeline runs the smoke test from inside the cluster. To repeat it from

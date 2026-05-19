@@ -4,7 +4,7 @@ ansible_ssh_private_key_file: "~/.ssh/labi_lab_ed25519"
 ansible_python_interpreter: /usr/bin/python3
 
 strimzi_version: "0.51.0"
-cnpg_version: "0.22.1"
+cnpg_version: "0.28.2"
 jenkins_chart_version: "5.9.19"
 jenkins_image_tag: "2.555.2"
 k3s_channel: "stable"
