@@ -234,3 +234,50 @@ make destroy        # helm uninstall everything first, then tf-destroy
 The next `make tf-apply` re-imports the leftover KMS resources via
 `import-existing.sh`, so destroy → apply round-trips without manual
 state surgery.
+
+### Repository layout
+
+```
+.
+├── app/                          Original challenge applications (Spring Boot 3)
+│   ├── front/  back/  reader/    Three Kotlin services (gradle multi-module)
+│   └── common/                   Shared message model
+├── docker/
+│   ├── Dockerfile                Distroless image used by the pipeline
+│   ├── Dockerfile.jenkins        Pre-baked Jenkins controller image (Cloud Build)
+│   ├── plugins.txt               Pinned Jenkins plugin set
+│   └── smoke-test.sh             End-to-end smoke (POST front → GET reader)
+├── charts/app/                   Generic Helm chart all three apps share
+│   ├── templates/                Deployment / Service / Ingress / NP / ESO
+│   └── values-{front,back,reader}.yaml
+├── k8s/                          Static manifests applied by the bootstrap scripts
+│   ├── namespaces.yaml           Managed ns + PSS labels
+│   ├── quotas.yaml               LimitRange + ResourceQuota
+│   ├── network-policies/         Per-component NPs (baseline + per-ns allows)
+│   ├── kafka/                    Strimzi Kafka cluster + KafkaUser/Topic
+│   ├── postgres/                 CNPG Cluster
+│   ├── eso/                      ClusterSecretStore + ExternalSecrets (GCP SM)
+│   ├── cert-manager/             ClusterIssuer (Let's Encrypt)
+│   ├── jenkins/                  RBAC (deployer per demo-* ns, build-agent SA)
+│   └── pod-security/             PSS labels for operator namespaces
+├── deploy/
+│   ├── bootstrap-gcp/
+│   │   └── 00-create-project.sh  Creates GCP project, enables APIs, writes
+│   │                             GCS state bucket + backend.hcl
+│   ├── terraform/                VPC / KMS / Artifact Registry / GKE / IAM
+│   │   ├── *.tf                  Resource definitions
+│   │   ├── backend.hcl           GCS backend config (gitignored, per project)
+│   │   ├── terraform.tfvars      project_id / region / zone (gitignored)
+│   │   └── import-existing.sh    Re-imports KMS keyring/keys after destroy
+│   │                             so the next apply doesn't 409
+│   └── k8s-bootstrap/            01-cert-manager → 06-app-secrets
+│       └── jenkins-values.yaml.tpl
+├── Jenkinsfile                   Declarative pipeline (gradle → kaniko → helm → smoke)
+├── Makefile                      All entry points — `make help` lists them
+├── doc/
+│   ├── img/                      Architecture diagrams (challenge brief)
+│   ├── trivy.md                  How to run + interpret Trivy scans
+│   └── reports/                  Dated Trivy reports
+├── .trivyignore                  Accepted findings, with reason inline
+└── .kube-linter.yaml             kube-linter exclude list, with reason inline
+```
